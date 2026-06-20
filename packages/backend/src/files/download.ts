@@ -171,9 +171,6 @@ export async function handleFileDownload(c: Context<AppContext>): Promise<Respon
       headers.set('Content-Length', r2Object.size.toString());
     }
 
-    // R2 object body can be streamed
-    // Use writeHttpMetadata to preserve R2-stored metadata
-    r2Object.writeHttpMetadata(headers);
 
     return new Response(r2Object.body, {
       status: 200,
@@ -670,8 +667,6 @@ export async function handleRawFile(c: Context<AppContext>): Promise<Response> {
       headers.set('Content-Length', r2Object.size.toString());
     }
 
-    // Use writeHttpMetadata to preserve R2-stored metadata
-    r2Object.writeHttpMetadata(headers);
 
     return new Response(r2Object.body, {
       status: 200,
@@ -800,8 +795,6 @@ export async function handlePublicFile(c: Context<AppContext>): Promise<Response
       headers.set('Content-Length', r2Object.size.toString());
     }
 
-    // Preserve R2-stored metadata
-    r2Object.writeHttpMetadata(headers);
 
     return new Response(r2Object.body, {
       status: 200,
