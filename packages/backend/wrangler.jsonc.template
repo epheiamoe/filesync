@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/npm/wrangler/json-config-schema.json",
+  "name": "epheia-files-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "epheia-files-db",
+      "database_id": "<YOUR_D1_DATABASE_ID>"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "<YOUR_KV_NAMESPACE_ID>"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "epheia-files"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RoomDO",
+        "class_name": "RoomDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["RoomDO"]
+    }
+  ],
+  "routes": [
+    // { "pattern": "api.epheia-files.pages.dev/*", "zone_id": "..." }
+    // Uncomment and set zone_id when deploying to production.
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
