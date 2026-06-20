@@ -4,7 +4,7 @@
  * Hono app with:
  *   - CORS middleware (allow all origins for dev)
  *   - Auth middleware (extracts Bearer token, validates against KV, attaches session)
- *   - Route modules for auth, rooms, and placeholder for files/chat/admin
+ *   - Route modules for auth, rooms, files, chat, admin, and WebSocket
  *
  * @module index
  */
@@ -12,12 +12,33 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { AppContext } from './types';
+
+// ---- Auth ----
 import { handleLogin } from './auth/login';
 import { handleCreateCredential, handleListCredentials, handleRevokeCredential, handleCreateApiKey, handleRevokeApiKey } from './auth/credentials';
 import { validateSession, destroySession } from './auth/session';
+
+// ---- Rooms ----
 import { handleCreateRoom } from './rooms/create';
 import { handleJoinRoom } from './rooms/join';
 import { handleListRooms, handleGetRoom } from './rooms/list';
+
+// ---- Files ----
+import { handleUploadInit, handleUploadPart, handleUploadComplete, handleUploadAbort } from './files/upload';
+import { handleFileDownload, handleFileInfo, handleRoomFilesList, handleFileRecall } from './files/download';
+
+// ---- Chat ----
+import { handleSendMessage, handleGetMessages, handleRecallMessage } from './chat/messages';
+
+// ---- WebSocket ----
+import { handleWsTicket, handleWsConnect } from './ws/handler';
+
+// ---- Admin ----
+import { handleAdminStats, handleAdminRooms } from './admin/stats';
+import { handleDestroyRoom } from './admin/rooms';
+
+// ---- DO (must be exported for wrangler) ----
+export { RoomDO } from './do/room';
 
 // ---- Create App ----
 const app = new Hono<AppContext>();
@@ -28,17 +49,22 @@ app.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
-  exposeHeaders: ['X-File-Encrypted'],
+  exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
   maxAge: 86400,
 }));
 
 // ---- Auth Middleware ----
 // Extracts Bearer token from Authorization header, validates against KV,
 // and attaches session + sessionToken to context.
-// Applied to all routes except /api/auth/login
+// Applied to all routes except /api/auth/login and /api/ws/connect
 app.use('/api/*', async (c, next) => {
-  // Skip auth for login endpoint
+  // Skip auth for login endpoint and WS connect (uses ticket-based auth)
   if (c.req.path === '/api/auth/login') {
+    return next();
+  }
+
+  // Skip auth for WS connect — it uses ticket validation instead
+  if (c.req.path === '/api/ws/connect') {
     return next();
   }
 
@@ -112,6 +138,34 @@ app.post('/api/rooms', handleCreateRoom);
 app.get('/api/rooms', handleListRooms);
 app.post('/api/rooms/join', handleJoinRoom);
 app.get('/api/rooms/:code', handleGetRoom);
+
+// ---- File Routes ----
+// NOTE: More specific routes must be registered BEFORE parameterized routes
+// to avoid path conflicts.
+app.post('/api/files/upload/init', handleUploadInit);
+app.post('/api/files/upload/part', handleUploadPart);
+app.post('/api/files/upload/complete', handleUploadComplete);
+app.post('/api/files/upload/abort', handleUploadAbort);
+app.get('/api/files/room/:roomId', handleRoomFilesList);
+app.get('/api/files/:id/download', handleFileDownload);
+app.get('/api/files/:id/info', handleFileInfo);
+app.delete('/api/files/:id', handleFileRecall);
+
+// ---- Chat Routes ----
+app.get('/api/chat/messages', handleGetMessages);
+app.post('/api/chat/messages', handleSendMessage);
+app.delete('/api/chat/messages/:id', handleRecallMessage);
+
+// ---- WebSocket Routes ----
+// Step 1: Request a ticket (requires Bearer auth via middleware)
+app.get('/api/ws', handleWsTicket);
+// Step 2: Connect with ticket (bypasses auth middleware — uses KV ticket validation)
+app.get('/api/ws/connect', handleWsConnect);
+
+// ---- Admin Routes ----
+app.get('/api/admin/stats', handleAdminStats);
+app.get('/api/admin/rooms', handleAdminRooms);
+app.delete('/api/admin/rooms/:code', handleDestroyRoom);
 
 // ---- Health Check ----
 app.get('/api/health', (c) => {

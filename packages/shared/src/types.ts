@@ -102,6 +102,25 @@ export interface AdminStats {
   active_sessions: number;
 }
 
+export interface AdminRoomRow {
+  id: string;
+  room_code: string;
+  created_at: string;
+  member_count: number;
+  file_count: number;
+  total_bytes: number;
+}
+
+export interface AdminRoomsResponse {
+  rooms: AdminRoomRow[];
+}
+
+export interface DestroyRoomResponse {
+  success: boolean;
+  deleted_files: number;
+  deleted_messages: number;
+}
+
 // ---- Messages (preview — full types in task_2) ----
 
 export interface MessageDTO {
@@ -113,6 +132,77 @@ export interface MessageDTO {
   device_label?: string;
   recalled_at?: string;
   created_at: string;
+}
+
+// ---- Chat API ----
+
+export interface SendMessageRequest {
+  room_id: string;
+  encrypted_content: string;
+  message_type?: MessageType;
+  device_label?: string;
+}
+
+export interface SendMessageResponse {
+  message_id: string;
+  created_at: string;
+}
+
+export interface ChatMessagesResponse {
+  messages: MessageDTO[];
+  next_cursor: string | null;
+}
+
+export interface DeleteMessageResponse {
+  success: boolean;
+}
+
+// ---- Files API ----
+
+export interface UploadInitRequest {
+  filename: string;
+  total_size: number;
+  chunk_size: number;
+  room_id: string;
+  visibility?: FileVisibility;
+  expires_at?: string;
+}
+
+export interface UploadInitResponse {
+  upload_id: string;
+  r2_key: string;
+  chunks_needed: number;
+}
+
+export interface UploadPart {
+  etag: string;
+  part_number: number;
+}
+
+export interface UploadPartResponse {
+  etag: string;
+  part_number: number;
+}
+
+export interface UploadCompleteRequest {
+  upload_id: string;
+  r2_key: string;
+  parts: UploadPart[];
+  encrypted_filename: string;
+  encrypted_meta?: string;
+  file_size: number;
+  mime_type: string;
+  visibility?: FileVisibility;
+  expires_at: string;
+  room_id: string;
+}
+
+export interface UploadCompleteResponse {
+  file_id: string;
+}
+
+export interface AbortUploadResponse {
+  success: boolean;
 }
 
 // ---- Files (preview — full types in task_2) ----
@@ -132,6 +222,11 @@ export interface FileMetaDTO {
   r2_key?: string;
 }
 
+export interface FileListResponse {
+  files: FileMetaDTO[];
+  cursor: string | null;
+}
+
 // ---- API Standard Response Wrapper ----
 
 export interface ApiResponse<T = unknown> {
@@ -141,7 +236,7 @@ export interface ApiResponse<T = unknown> {
   code?: string;
 }
 
-// ---- WebSocket Message Types ----
+// ---- WebSocket / DO Types ----
 
 export interface WsMessage {
   type: 'chat' | 'file_shared' | 'recall' | 'member_join' | 'member_leave' | 'system';
@@ -149,4 +244,40 @@ export interface WsMessage {
   sender_session_id: string;
   device_label: string;
   timestamp: string;
+}
+
+/** DO broadcast event — sent from Worker to RoomDO for relaying to clients */
+export interface BroadcastEvent {
+  type: WsMessage['type'];
+  payload: unknown;
+  sender_session_id: string;
+  device_label: string;
+  timestamp: string;
+}
+
+export interface OnlineMember {
+  session_id: string;
+  device_label: string;
+  display_label: string; // with dedup suffix like "#2"
+}
+
+export interface WsTicketResponse {
+  ticket: string;
+}
+
+// ---- Crypto Shared (for client reference) ----
+
+/** Key format for room encryption keys */
+export interface RoomKey {
+  /** Raw 32-byte key material (hex encoded for transport) */
+  hex: string;
+  /** Base32 Crockford encoded (for share strings) */
+  base32: string;
+}
+
+/** Share string format: "{room_code}-{key_base32_groups}" */
+export interface ShareString {
+  room_code: string;
+  key_prefix: string;
+  full: string;
 }
