@@ -182,6 +182,7 @@ export function RoomPage() {
       const message = err instanceof Error ? err.message : t('rooms.invalidShareString');
       setError(message);
       setJoining(false);
+      setLoading(false);
     }
   };
 
