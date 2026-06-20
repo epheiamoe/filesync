@@ -14,7 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString, encryptText, encryptFile } from '@/lib/crypto';
+import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString, encryptText, encryptFile, encodeShareString } from '@/lib/crypto';
 import { parseDeviceLabel } from '@/lib/device';
 import { RoomSocket } from '@/lib/ws';
 import { TabBar } from '@/components/ui/TabBar';
@@ -26,6 +26,7 @@ import { ChatInput } from '@/components/chat/ChatInput';
 import { TransferPage } from '@/components/transfer/TransferPage';
 import { UploadProgress } from '@/components/transfer/UploadProgress';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { QRShare } from '@/components/shared/QRShare';
 import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
 
 // ---- Upload task tracking (same shape as UploadZone) ----
@@ -72,6 +73,8 @@ export function RoomPage() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [uploadIsPublic, setUploadIsPublic] = useState(false);
   const [uploadTTLMinutes, setUploadTTLMinutes] = useState(10);
+  const [roomReady, setRoomReady] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -134,6 +137,7 @@ export function RoomPage() {
         setError(message);
       } finally {
         setLoading(false);
+        setRoomReady(true);
       }
     };
 
@@ -172,6 +176,7 @@ export function RoomPage() {
       });
       const msgRes = await api.getMessages(roomInfo.id);
       setMessages(msgRes.messages);
+      setRoomReady(true);
       setLoading(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('rooms.invalidShareString');
@@ -184,6 +189,7 @@ export function RoomPage() {
 
   useEffect(() => {
     if (!code || !session?.token) return;
+    if (!roomReady) return;
 
     const socket = new RoomSocket(code, session.token);
     setWs(socket);
@@ -224,7 +230,7 @@ export function RoomPage() {
     return () => {
       socket.close();
     };
-  }, [code, session?.token, addMessage, removeMessage, addFile, setOnlineMembers]);
+  }, [code, session?.token, roomReady, addMessage, removeMessage, addFile, setOnlineMembers]);
 
   // ---- Decrypt messages as they arrive ----
 
@@ -253,20 +259,20 @@ export function RoomPage() {
 
   // ---- Shared Send Handler (BUG 1 fix: optimistic local add) ----
 
-  const handleSend = useCallback(async (text: string) => {
-    if (!text.trim() || !code || !currentRoom || !session) return;
+  const handleSend = useCallback(async (text: string): Promise<boolean> => {
+    if (!text.trim() || !code || !currentRoom || !session) return false;
     setSending(true);
 
     try {
       const key = getRoomKey(code);
-      if (!key) throw new Error('No encryption key');
+      if (!key) throw new Error(t('e2ee.encryptError'));
 
       const encrypted = await encryptText(key, text);
       const deviceLabel = parseDeviceLabel();
 
       const res = await api.sendMessage(currentRoom.id, encrypted, 'text', deviceLabel);
 
-      // BUG 1 fix: Add message to local store immediately.
+      // Add message to local store immediately.
       // Uses the server-assigned message_id so that when the WebSocket
       // broadcast arrives with the same ID, store.addMessage deduplicates it.
       const newMsg: MessageDTO = {
@@ -279,8 +285,15 @@ export function RoomPage() {
         created_at: res.created_at,
       };
       addMessage(newMsg);
-    } catch {
-      // Error handled silently — the send button will re-enable
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.error');
+      console.error('[RoomPage] Failed to send message:', err);
+      useStore.getState().addToast({
+        type: 'error',
+        message: `${t('chat.sendFailed')}: ${message}`,
+      });
+      return false;
     } finally {
       setSending(false);
     }
@@ -564,6 +577,36 @@ export function RoomPage() {
                 {onlineMembers.length} {t('rooms.online')}
               </span>
             )}
+            {(() => {
+              const key = getRoomKey(code!);
+              if (!key) return null;
+              return (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShareOpen(true)}
+                  aria-label={t('rooms.share')}
+                  title={t('rooms.share')}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="w-5 h-5"
+                  >
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                </Button>
+              );
+            })()}
           </div>
           <Button
             variant="ghost"
@@ -666,6 +709,20 @@ export function RoomPage() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* QR Share Modal */}
+      {(() => {
+        const key = getRoomKey(code!);
+        const shareString = key ? encodeShareString(code!, key) : '';
+        return (
+          <QRShare
+            isOpen={shareOpen}
+            onClose={() => setShareOpen(false)}
+            shareString={shareString}
+            roomCode={code!}
+          />
+        );
+      })()}
     </div>
   );
 }

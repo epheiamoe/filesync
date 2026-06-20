@@ -14,7 +14,7 @@ import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 
 interface ChatInputProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<boolean>;
   onFileSelect?: (files: FileList) => void;
   disabled?: boolean;
   /** Whether the file being uploaded should be public (unencrypted, shareable). */
@@ -52,18 +52,21 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!text.trim() || disabled) return;
-    onSend(text.trim());
-    setText('');
-    // Trigger pulse animation
-    setPulse(true);
-    setTimeout(() => setPulse(false), 300);
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    const messageText = text.trim();
+    onSend(messageText)
+      .then((success) => {
+        if (success) {
+          setText('');
+          setPulse(true);
+          setTimeout(() => setPulse(false), 300);
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+        }
+        // On failure, don't clear — user can retry
+      });
   }, [text, disabled, onSend]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

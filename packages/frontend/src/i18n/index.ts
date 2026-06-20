@@ -72,6 +72,7 @@ const translations: Translations = {
   'rooms.noRooms': { 'zh-CN': '还没有房间，创建一个吧', 'en-US': 'No rooms yet, create one' },
   'rooms.keyMismatch': { 'zh-CN': '密钥不匹配', 'en-US': 'Key mismatch' },
   'rooms.roomNotFound': { 'zh-CN': '房间不存在', 'en-US': 'Room not found' },
+  'rooms.share': { 'zh-CN': '分享房间', 'en-US': 'Share Room' },
   'rooms.cachedKey': { 'zh-CN': '已缓存', 'en-US': 'Cached' },
   'rooms.enterKeyTitle': { 'zh-CN': '需要房间密钥', 'en-US': 'Room key required' },
   'rooms.enterKeyDesc': { 'zh-CN': '请输入房间 {code} 的分享字符串以加入', 'en-US': 'Enter the share string for room {code} to join' },
@@ -101,6 +102,7 @@ const translations: Translations = {
   'chat.copyContent': { 'zh-CN': '复制全部内容', 'en-US': 'Copy All Content' },
   'chat.contentCopied': { 'zh-CN': '内容已复制', 'en-US': 'Content copied' },
   'chat.fileUnavailable': { 'zh-CN': '文件不可用', 'en-US': 'File unavailable' },
+  'chat.sendFailed': { 'zh-CN': '消息发送失败', 'en-US': 'Message send failed' },
 
   // ---- Transfer ----
   'transfer.title': { 'zh-CN': '传输', 'en-US': 'Transfer' },

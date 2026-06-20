@@ -2,7 +2,7 @@
  * WebSocket handler — connection upgrade endpoint.
  *
  * Two-step flow for secure WebSocket connections:
- *   1. GET /api/ws?room=XXXX&token=YYY
+ *   1. GET /api/ws?room=XXXX
  *      → Worker validates auth, creates 60s one-time ticket in KV
  *      → Returns { ticket }
  *
@@ -18,7 +18,6 @@
  * @module ws/handler
  */
 
-import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import type { WsTicketResponse } from '@filesync/shared';
@@ -35,11 +34,10 @@ const TICKET_TTL_SECONDS = 60;
  */
 export async function handleWsTicket(c: Context<AppContext>): Promise<Response> {
   const roomCode = c.req.query('room');
-  const token = c.req.query('token');
 
-  if (!roomCode || !token) {
+  if (!roomCode) {
     return c.json(
-      { success: false, error: 'room and token query params required', code: 'VALIDATION_ERROR' },
+      { success: false, error: 'room query param required', code: 'VALIDATION_ERROR' },
       400
     );
   }
@@ -52,9 +50,8 @@ export async function handleWsTicket(c: Context<AppContext>): Promise<Response> 
     );
   }
 
-  // Auth is already validated by the auth middleware (token from query)
-  // The token in the query param is the session token from the auth header.
-  // The middleware already validated it and set c.get('session').
+  // Auth is already validated by the auth middleware (cookie or Bearer header).
+  // The middleware validated the session and set c.get('session') / c.get('sessionToken').
   const session = c.get('session');
   const sessionToken = c.get('sessionToken');
 
