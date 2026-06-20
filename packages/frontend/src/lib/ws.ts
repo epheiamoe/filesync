@@ -17,7 +17,9 @@ export type WsEventHandler = (event: WsMessage) => void;
 export type MemberUpdateHandler = (members: OnlineMember[]) => void;
 export type ConnectionHandler = (connected: boolean) => void;
 
-const WS_BASE = `ws://localhost:8787`;
+const WS_BASE = import.meta.env.DEV
+  ? 'ws://localhost:8787'
+  : 'wss://epheia-files-api.epheia.workers.dev';
 
 export class RoomSocket {
   private ws: WebSocket | null = null;

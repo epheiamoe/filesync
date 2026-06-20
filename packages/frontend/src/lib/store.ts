@@ -172,9 +172,14 @@ export const useStore = create<AppState>((set) => ({
 
   // ---- Message Actions ----
   addMessage: (msg) => {
-    set((state) => ({
-      messages: [...state.messages, msg],
-    }));
+    set((state) => {
+      // Deduplicate by ID — prevents double-add when optimistic local add
+      // races with the WebSocket broadcast of the same server-assigned message.
+      if (state.messages.some((m) => m.id === msg.id)) {
+        return state;
+      }
+      return { messages: [...state.messages, msg] };
+    });
   },
 
   setMessages: (msgs) => {

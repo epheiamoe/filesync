@@ -72,6 +72,7 @@ const translations: Translations = {
   'rooms.enterKeyTitle': { 'zh-CN': '需要房间密钥', 'en-US': 'Room key required' },
   'rooms.enterKeyDesc': { 'zh-CN': '请输入房间 {code} 的分享字符串以加入', 'en-US': 'Enter the share string for room {code} to join' },
   'rooms.invalidShareString': { 'zh-CN': '无效的分享字符串或房间不匹配', 'en-US': 'Invalid share string or room mismatch' },
+  'rooms.enterRoom': { 'zh-CN': '进入房间', 'en-US': 'Enter Room' },
   'rooms.joining': { 'zh-CN': '正在加入房间...', 'en-US': 'Joining room...' },
 
   // ---- Chat ----

@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +21,7 @@ interface QRShareProps {
 export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!isOpen || !canvasRef.current) return;
@@ -130,23 +132,36 @@ export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 mt-6">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  onClick={handleExport}
-                >
-                  {t('rooms.exportKey')}
-                </Button>
+              <div className="flex flex-col gap-2 mt-6">
                 <Button
                   variant="primary"
-                  size="sm"
+                  size="md"
                   fullWidth
-                  onClick={onClose}
+                  onClick={() => {
+                    onClose();
+                    navigate(`/room/${roomCode}`);
+                  }}
                 >
-                  {t('common.close')}
+                  {t('rooms.enterRoom')}
                 </Button>
+                <div className="flex gap-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={handleExport}
+                  >
+                    {t('rooms.exportKey')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    fullWidth
+                    onClick={onClose}
+                  >
+                    {t('common.close')}
+                  </Button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

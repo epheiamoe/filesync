@@ -24,9 +24,11 @@ interface MessageBubbleProps {
   message: MessageDTO;
   decryptedContent: string | undefined;
   roomCode: string;
+  /** Whether this message was sent by the current session — controls alignment. */
+  isSelf?: boolean;
 }
 
-export function MessageBubble({ message, decryptedContent, roomCode }: MessageBubbleProps) {
+export function MessageBubble({ message, decryptedContent, roomCode, isSelf = false }: MessageBubbleProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
   const session = useStore((s) => s.session);
@@ -92,7 +94,7 @@ export function MessageBubble({ message, decryptedContent, roomCode }: MessageBu
           document.addEventListener('touchend', cancel, { once: true });
           document.addEventListener('touchmove', cancel, { once: true });
         }}
-        className={`group flex flex-col gap-0.5 ${isRecalled ? 'opacity-60' : ''}`}
+        className={`group flex flex-col gap-0.5 ${isRecalled ? 'opacity-60' : ''} ${isSelf ? 'items-end' : 'items-start'}`}
       >
         {/* Device label */}
         {message.device_label && (
@@ -107,7 +109,9 @@ export function MessageBubble({ message, decryptedContent, roomCode }: MessageBu
             max-w-[85%] sm:max-w-[70%] rounded-lg px-3.5 py-2.5
             ${isRecalled
               ? 'bg-canvas-card italic text-muted'
-              : 'bg-canvas-card text-body'
+              : isSelf
+                ? 'bg-primary/10 text-body'
+                : 'bg-canvas-card text-body'
             }
           `.trim().replace(/\s+/g, ' ')}
         >

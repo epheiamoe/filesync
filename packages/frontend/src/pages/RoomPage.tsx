@@ -1,17 +1,20 @@
 /**
  * RoomPage — Main room view with Chat and Transfer tabs.
  *
- * Two-tab layout with Claude-style tab design.
- * Fetches room info, connects WebSocket, manages E2EE decryption.
+ * Features:
+ * - Two-tab layout with shared bottom input bar (Telegram-style)
+ * - Whole-page drag-drop for file upload
+ * - Optimistic message display (appears immediately, deduplicated with WS)
+ * - Combined messages+files timeline in Chat view
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type DragEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString } from '@/lib/crypto';
+import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString, encryptText, encryptFile } from '@/lib/crypto';
 import { parseDeviceLabel } from '@/lib/device';
 import { RoomSocket } from '@/lib/ws';
 import { TabBar } from '@/components/ui/TabBar';
@@ -19,8 +22,24 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatPage } from '@/components/chat/ChatPage';
+import { ChatInput } from '@/components/chat/ChatInput';
 import { TransferPage } from '@/components/transfer/TransferPage';
-import type { MessageDTO, OnlineMember } from '@/lib/store';
+import { UploadProgress } from '@/components/transfer/UploadProgress';
+import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
+
+// ---- Upload task tracking (same shape as UploadZone) ----
+
+interface UploadTask {
+  id: string;
+  name: string;
+  size: number;
+  progress: number;
+  status: 'pending' | 'uploading' | 'encrypting' | 'complete' | 'error';
+  error?: string;
+}
+
+const CHUNK_SIZE_SMALL = 5 * 1024 * 1024; // 5MB for files <= 100MB
+const CHUNK_SIZE_LARGE = 10 * 1024 * 1024; // 10MB for files > 100MB
 
 export function RoomPage() {
   const { code } = useParams<{ code: string }>();
@@ -47,8 +66,12 @@ export function RoomPage() {
   const [keyInput, setKeyInput] = useState('');
   const [ws, setWs] = useState<RoomSocket | null>(null);
   const [decryptedMessages, setDecryptedMessages] = useState<Map<string, string>>(new Map());
+  const [sending, setSending] = useState(false);
+  const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  // Load room info — auto-join with cached key, or prompt for key input
+  // ---- Room loading (unchanged core logic) ----
+
   useEffect(() => {
     if (!code) return;
     setLoading(true);
@@ -56,10 +79,7 @@ export function RoomPage() {
     setNeedsKey(false);
 
     const initRoom = async () => {
-      // Check if we have a cached key for this room
       let roomKey = getRoomKey(code);
-
-      // If no cached key, check session storage for a just-entered key
       if (!roomKey) {
         const sessionKey = sessionStorage.getItem(`join_key_${code}`);
         if (sessionKey) {
@@ -73,7 +93,6 @@ export function RoomPage() {
         }
       }
 
-      // If we have the key, auto-join
       if (roomKey) {
         setJoining(true);
         try {
@@ -82,7 +101,6 @@ export function RoomPage() {
           await api.joinRoom(code, keyHash, deviceLabel);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : '';
-          // 403/409 means already a member (ok) or key mismatch
           if (!msg.includes('already') && !msg.includes('member')) {
             setError(msg || t('rooms.keyMismatch'));
             setLoading(false);
@@ -92,13 +110,11 @@ export function RoomPage() {
         }
         setJoining(false);
       } else {
-        // No key cached — show key input prompt
         setNeedsKey(true);
         setLoading(false);
         return;
       }
 
-      // Now load room info and messages
       try {
         const roomInfo = await api.getRoomInfo(code);
         setCurrentRoom({
@@ -108,7 +124,6 @@ export function RoomPage() {
           memberCount: roomInfo.member_count,
         });
 
-        // Load messages
         const msgRes = await api.getMessages(roomInfo.id);
         setMessages(msgRes.messages);
       } catch (err: unknown) {
@@ -122,7 +137,8 @@ export function RoomPage() {
     initRoom();
   }, [code, setCurrentRoom, setMessages]);
 
-  // Handle key input form submission
+  // ---- Key input form ----
+
   const handleKeySubmit = async () => {
     if (!code || !keyInput.trim()) return;
     setJoining(true);
@@ -139,7 +155,6 @@ export function RoomPage() {
       await api.joinRoom(code, keyHash, deviceLabel);
       storeRoomKey(code, decoded.key);
 
-      // Reload — now with the key cached, the effect above will auto-join
       setNeedsKey(false);
       setJoining(false);
       setLoading(true);
@@ -162,7 +177,8 @@ export function RoomPage() {
     }
   };
 
-  // Connect WebSocket
+  // ---- WebSocket connection ----
+
   useEffect(() => {
     if (!code || !session?.token) return;
 
@@ -173,6 +189,7 @@ export function RoomPage() {
       switch (event.type) {
         case 'chat': {
           const msg = event.payload as MessageDTO;
+          // Deduplication is handled by store.addMessage (idempotent by ID)
           addMessage(msg);
           break;
         }
@@ -182,7 +199,7 @@ export function RoomPage() {
           break;
         }
         case 'file_shared': {
-          const file = event.payload as unknown as Parameters<typeof addFile>[0];
+          const file = event.payload as unknown as FileMetaDTO;
           addFile(file);
           break;
         }
@@ -200,7 +217,8 @@ export function RoomPage() {
     };
   }, [code, session?.token, addMessage, removeMessage, addFile, setOnlineMembers]);
 
-  // Decrypt messages as they arrive
+  // ---- Decrypt messages as they arrive ----
+
   useEffect(() => {
     if (!code) return;
     const key = getRoomKey(code);
@@ -224,10 +242,193 @@ export function RoomPage() {
     decryptNewMessages();
   }, [messages, code]);
 
+  // ---- Shared Send Handler (BUG 1 fix: optimistic local add) ----
+
+  const handleSend = useCallback(async (text: string) => {
+    if (!text.trim() || !code || !currentRoom || !session) return;
+    setSending(true);
+
+    try {
+      const key = getRoomKey(code);
+      if (!key) throw new Error('No encryption key');
+
+      const encrypted = await encryptText(key, text);
+      const deviceLabel = parseDeviceLabel();
+
+      const res = await api.sendMessage(currentRoom.id, encrypted, 'text', deviceLabel);
+
+      // BUG 1 fix: Add message to local store immediately.
+      // Uses the server-assigned message_id so that when the WebSocket
+      // broadcast arrives with the same ID, store.addMessage deduplicates it.
+      const newMsg: MessageDTO = {
+        id: res.message_id,
+        room_id: currentRoom.id,
+        sender_session_id: session.token,
+        encrypted_content: encrypted,
+        message_type: 'text',
+        device_label: deviceLabel,
+        created_at: res.created_at,
+      };
+      addMessage(newMsg);
+    } catch {
+      // Error handled silently — the send button will re-enable
+    } finally {
+      setSending(false);
+    }
+  }, [code, currentRoom, session, addMessage]);
+
+  // ---- Shared File Upload Handler (used by input bar and drag-drop) ----
+
+  const handleFileUpload = useCallback(
+    async (fileList: FileList | File[]) => {
+      if (!code) return;
+      const key = getRoomKey(code);
+      if (!key || !currentRoom) {
+        useStore.getState().addToast({ type: 'error', message: t('e2ee.encryptError') });
+        return;
+      }
+
+      const fileArray = Array.from(fileList);
+      if (fileArray.length === 0) return;
+
+      const totalSize = fileArray.reduce((sum, f) => sum + f.size, 0);
+      if (totalSize > 5 * 1024 * 1024 * 1024) {
+        useStore.getState().addToast({ type: 'error', message: t('transfer.maxSize') });
+        return;
+      }
+
+      for (const file of fileArray) {
+        const taskId = crypto.randomUUID();
+        const task: UploadTask = {
+          id: taskId,
+          name: file.name,
+          size: file.size,
+          progress: 0,
+          status: 'encrypting',
+        };
+
+        setUploadTasks((prev) => [...prev, task]);
+
+        try {
+          const fileBuffer = await file.arrayBuffer();
+          setUploadTasks((prev) =>
+            prev.map((t) => (t.id === taskId ? { ...t, status: 'uploading' } : t)),
+          );
+
+          const encrypted = await encryptFile(key, fileBuffer);
+          const encryptedFilename = await encryptText(key, file.name);
+
+          const chunkSize = file.size <= 100 * 1024 * 1024 ? CHUNK_SIZE_SMALL : CHUNK_SIZE_LARGE;
+          const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+          const initRes = await api.initUpload(
+            file.name,
+            encrypted.byteLength,
+            chunkSize,
+            currentRoom.id,
+            'private',
+            expiresAt,
+          );
+
+          const totalChunks = Math.ceil(encrypted.byteLength / chunkSize);
+          const parts: { etag: string; part_number: number }[] = [];
+
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, encrypted.byteLength);
+            const chunk = encrypted.slice(start, end);
+            const partRes = await api.uploadPart(initRes.upload_id, i + 1, chunk);
+            parts.push({ etag: partRes.etag, part_number: partRes.part_number });
+
+            setUploadTasks((prev) =>
+              prev.map((t) =>
+                t.id === taskId
+                  ? { ...t, progress: Math.round(((i + 1) / totalChunks) * 90) }
+                  : t,
+              ),
+            );
+          }
+
+          await api.completeUpload(
+            initRes.upload_id,
+            initRes.r2_key,
+            parts,
+            encryptedFilename,
+            encrypted.byteLength,
+            file.type || 'application/octet-stream',
+            'private',
+            expiresAt,
+            currentRoom.id,
+          );
+
+          setUploadTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId ? { ...t, status: 'complete', progress: 100 } : t,
+            ),
+          );
+
+          setTimeout(() => {
+            setUploadTasks((prev) => prev.filter((t) => t.id !== taskId));
+          }, 3000);
+
+          useStore.getState().addToast({ type: 'success', message: `${file.name} ${t('transfer.upload')}` });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : t('common.error');
+          setUploadTasks((prev) =>
+            prev.map((t) => (t.id === taskId ? { ...t, status: 'error', error: message } : t)),
+          );
+          useStore.getState().addToast({ type: 'error', message: `${file.name}: ${message}` });
+        }
+      }
+    },
+    [code, currentRoom],
+  );
+
+  // ---- File input ref for the shared input bar ----
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFileUpload(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  // ---- Whole-page drag-drop (BUG 5) ----
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files);
+    }
+  };
+
+  // ---- Tab config ----
+
   const tabs = [
     { key: 'chat', label: t('chat.title') },
     { key: 'transfer', label: t('transfer.title') },
   ];
+
+  // ---- Loading / Joining state ----
 
   if (loading || joining) {
     return (
@@ -238,7 +439,8 @@ export function RoomPage() {
     );
   }
 
-  // Key input prompt — shown when no cached key available
+  // ---- Key input prompt ----
+
   if (needsKey) {
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-4 px-4">
@@ -267,6 +469,8 @@ export function RoomPage() {
     );
   }
 
+  // ---- Error / Not found ----
+
   if (error || !currentRoom) {
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-4">
@@ -278,8 +482,42 @@ export function RoomPage() {
     );
   }
 
+  // ---- Main Room View ----
+
   return (
-    <div className="min-h-screen bg-canvas flex flex-col">
+    <div
+      className="min-h-screen bg-canvas flex flex-col relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag-over overlay */}
+      <AnimatePresence>
+        {isDraggingOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-primary/10 border-4 border-dashed border-primary pointer-events-none flex items-center justify-center"
+            aria-hidden="true"
+          >
+            <div className="text-center text-primary">
+              <svg
+                className="w-16 h-16 mx-auto mb-3"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <path d="M12 3v14m0 0l-4-4m4 4l4-4M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3" />
+              </svg>
+              <p className="text-lg font-medium">{t('transfer.dragDrop')}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Room Header */}
       <header className="sticky top-0 z-10 bg-canvas/80 backdrop-blur-sm border-b border-hairline">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -295,7 +533,6 @@ export function RoomPage() {
             <code className="text-display-sm font-display text-ink">
               {currentRoom.roomCode}
             </code>
-            {/* Online badge */}
             {onlineMembers.length > 0 && (
               <span className="flex items-center gap-1.5 text-xs text-success">
                 <span className="w-2 h-2 rounded-full bg-success" />
@@ -337,18 +574,53 @@ export function RoomPage() {
                 roomId={currentRoom.id}
                 roomCode={code!}
                 messages={messages}
+                files={files}
                 decryptedMessages={decryptedMessages}
+                sessionToken={session?.token || ''}
               />
             ) : (
               <TransferPage
                 roomId={currentRoom.id}
                 roomCode={code!}
                 files={files}
+                messages={messages}
+                decryptedMessages={decryptedMessages}
               />
             )}
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Shared Bottom Input Bar (BUG 2, 3, 4 fix) */}
+      <div className="sticky bottom-0 z-10 bg-canvas/80 backdrop-blur-sm border-t border-hairline">
+        <div className="max-w-5xl mx-auto px-4">
+          {/* Hidden file input for the shared bar */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleFileInputChange}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <ChatInput
+            onSend={handleSend}
+            onFileSelect={(files) => handleFileUpload(files)}
+            disabled={sending}
+          />
+        </div>
+
+        {/* Upload progress display */}
+        <AnimatePresence>
+          {uploadTasks.length > 0 && (
+            <div className="max-w-5xl mx-auto px-4 pb-3 space-y-2">
+              {uploadTasks.map((task) => (
+                <UploadProgress key={task.id} task={task} />
+              ))}
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
