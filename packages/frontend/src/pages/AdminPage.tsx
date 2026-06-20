@@ -28,6 +28,8 @@ export function AdminPage() {
   const [pwChanging, setPwChanging] = useState(false);
   const [pwMsg, setPwMsg] = useState('');
   const [pwOk, setPwOk] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const addToast = useStore((s) => s.addToast);
 
   const loadData = useCallback(async () => {
     try {
@@ -90,6 +92,35 @@ export function AdminPage() {
       setPwMsg(msg);
     } finally {
       setPwChanging(false);
+    }
+  };
+
+  // Delete all rooms with double confirmation
+  const handleDeleteAllRooms = async () => {
+    // First confirmation: standard confirm dialog
+    if (!window.confirm(t('admin.deleteAllConfirm'))) return;
+
+    // Second confirmation: prompt to type DELETE
+    const input = window.prompt(t('admin.typeDelete'));
+    if (input !== 'DELETE') {
+      if (input !== null) {
+        addToast({ type: 'error', message: t('admin.typeDelete') });
+      }
+      return;
+    }
+
+    setDeletingAll(true);
+    try {
+      const result = await api.destroyAllRooms();
+      addToast({
+        type: 'info',
+        message: t('admin.deleteAllDone', { count: String(result.deleted_rooms ?? 0) }),
+      });
+      await loadData();
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -247,6 +278,37 @@ export function AdminPage() {
                       </div>
                     </Card>
                   ))}
+
+                  {/* Delete All Rooms button */}
+                  <div className="mt-4 pt-4 border-t border-hairline">
+                    <Button
+                      variant="danger"
+                      loading={deletingAll}
+                      onClick={handleDeleteAllRooms}
+                      className="w-full sm:w-auto"
+                      aria-label={t('admin.deleteAll')}
+                    >
+                      <svg
+                        className="w-4 h-4 mr-1.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                      {t('admin.deleteAll')}
+                    </Button>
+                    <p className="text-[11px] text-muted-soft mt-1.5">
+                      {t('admin.deleteAllConfirm')}
+                    </p>
+                  </div>
                 </div>
               )}
             </section>

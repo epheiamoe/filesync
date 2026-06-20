@@ -52,7 +52,9 @@ const translations: Translations = {
   'rooms.create': { 'zh-CN': '创建新房间', 'en-US': 'Create Room' },
   'rooms.join': { 'zh-CN': '加入房间', 'en-US': 'Join Room' },
   'rooms.delete': { 'zh-CN': '删除', 'en-US': 'Delete' },
+  'rooms.deleteRoom': { 'zh-CN': '删除房间', 'en-US': 'Delete Room' },
   'rooms.deleteConfirm': { 'zh-CN': '确认删除此房间？所有消息和文件将被永久删除。', 'en-US': 'Delete this room? All messages and files will be permanently deleted.' },
+  'rooms.deleted': { 'zh-CN': '房间已销毁', 'en-US': 'Room destroyed' },
   'rooms.roomCode': { 'zh-CN': '房间码', 'en-US': 'Room Code' },
   'rooms.roomCodePlaceholder': { 'zh-CN': '4位房间码', 'en-US': '4-digit code' },
   'rooms.customCode': { 'zh-CN': '自定义房间码（可选）', 'en-US': 'Custom code (optional)' },
@@ -90,8 +92,15 @@ const translations: Translations = {
   'chat.copied': { 'zh-CN': '已复制', 'en-US': 'Copied' },
   'chat.openFile': { 'zh-CN': '打开', 'en-US': 'Open' },
   'chat.downloadFile': { 'zh-CN': '下载', 'en-US': 'Download' },
+  'chat.downloadImage': { 'zh-CN': '下载图片', 'en-US': 'Download Image' },
   'chat.copyLink': { 'zh-CN': '复制链接', 'en-US': 'Copy Link' },
   'chat.linkCopied': { 'zh-CN': '链接已复制', 'en-US': 'Link copied' },
+  'chat.viewImage': { 'zh-CN': '查看图片', 'en-US': 'View Image' },
+  'chat.closePreview': { 'zh-CN': '关闭预览', 'en-US': 'Close Preview' },
+  'chat.textPreview': { 'zh-CN': '文本预览', 'en-US': 'Text Preview' },
+  'chat.copyContent': { 'zh-CN': '复制全部内容', 'en-US': 'Copy All Content' },
+  'chat.contentCopied': { 'zh-CN': '内容已复制', 'en-US': 'Content copied' },
+  'chat.fileUnavailable': { 'zh-CN': '文件不可用', 'en-US': 'File unavailable' },
 
   // ---- Transfer ----
   'transfer.title': { 'zh-CN': '传输', 'en-US': 'Transfer' },
@@ -155,6 +164,8 @@ const translations: Translations = {
   'admin.pwChanged': { 'zh-CN': '密码已修改成功', 'en-US': 'Password changed successfully' },
   'admin.deleteAll': { 'zh-CN': '删除全部房间', 'en-US': 'Delete All Rooms' },
   'admin.deleteAllConfirm': { 'zh-CN': '确认删除全部房间？此操作不可撤销。', 'en-US': 'Delete ALL rooms? This cannot be undone.' },
+  'admin.typeDelete': { 'zh-CN': '请输入 DELETE 确认', 'en-US': 'Type DELETE to confirm' },
+  'admin.deleteAllDone': { 'zh-CN': '已删除 {count} 个房间', 'en-US': 'Deleted {count} rooms' },
 
   // ---- E2EE ----
   'e2ee.keyGenerated': { 'zh-CN': '密钥已生成', 'en-US': 'Key Generated' },

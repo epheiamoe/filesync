@@ -3,6 +3,7 @@
  *
  * Shows existing rooms as cards with room_code, member count, and share options.
  * Allows creating new rooms (with QR code display) and joining via share string.
+ * Admin users can delete individual rooms with confirmation dialog.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -34,6 +35,8 @@ export function RoomListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrData, setQrData] = useState({ shareString: '', roomCode: '' });
+  const [deletingRooms, setDeletingRooms] = useState<Set<string>>(new Set());
+  const addToast = useStore((s) => s.addToast);
 
   const loadRooms = useCallback(async () => {
     try {
@@ -135,6 +138,35 @@ export function RoomListPage() {
   const handleRoomClick = (roomCode: string) => {
     navigate(`/room/${roomCode}`);
   };
+
+  // Delete a single room (admin only)
+  const handleDeleteRoom = useCallback(async (roomCode: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigating to room
+
+    if (!window.confirm(t('rooms.deleteConfirm'))) return;
+
+    try {
+      await api.destroyRoom(roomCode);
+      // Start deleting animation
+      setDeletingRooms((prev) => {
+        const next = new Set(prev);
+        next.add(roomCode);
+        return next;
+      });
+      // Remove from list after animation
+      setTimeout(() => {
+        setRooms((prev) => prev.filter((r) => 'room_code' in r ? r.room_code !== roomCode : true));
+        setDeletingRooms((prev) => {
+          const next = new Set(prev);
+          next.delete(roomCode);
+          return next;
+        });
+      }, 500); // Wait for exit animation
+      addToast({ type: 'info', message: t('rooms.deleted') });
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    }
+  }, [addToast]);
 
   const handleLogout = async () => {
     try {
@@ -263,54 +295,91 @@ export function RoomListPage() {
               visible: { transition: { staggerChildren: 0.05 } },
             }}
           >
-            {rooms.map((room) => {
-              const isCached = hasRoomKey(room.room_code);
-              return (
-              <motion.div
-                key={room.id}
-                variants={{
-                  hidden: { opacity: 0, y: 10 },
-                  visible: {
-                    opacity: 1,
-                    y: 0,
-                    transition: { type: 'spring', stiffness: 500, damping: 40 },
-                  },
-                }}
-              >
-                <Card
-                  padding="md"
-                  className={`cursor-pointer hover:shadow-sm transition-shadow ${
-                    isCached ? 'bg-blue-50/40 border-blue-200/60' : ''
-                  }`}
-                  onClick={() => handleRoomClick(room.room_code)}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <code className="text-display-sm font-display text-ink">
-                        {room.room_code}
-                      </code>
-                      {isCached && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium" title={t('rooms.cachedKey')}>
-                          {t('rooms.cachedKey')}
+            <AnimatePresence>
+              {rooms.map((room) => {
+                const isCached = hasRoomKey(room.room_code);
+                const isDeleting = deletingRooms.has(room.room_code);
+
+                return (
+                  <motion.div
+                    key={room.id}
+                    variants={{
+                      hidden: { opacity: 0, y: 10 },
+                      visible: {
+                        opacity: 1,
+                        y: 0,
+                        transition: { type: 'spring', stiffness: 500, damping: 40 },
+                      },
+                    }}
+                    exit={{
+                      opacity: 0,
+                      scale: 0.9,
+                      transition: { duration: 0.4, ease: 'easeInOut' },
+                    }}
+                    className="relative"
+                  >
+                    <Card
+                      padding="md"
+                      className={`cursor-pointer hover:shadow-sm transition-shadow ${
+                        isCached ? 'bg-blue-50/40 border-blue-200/60' : ''
+                      } ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                      onClick={() => handleRoomClick(room.room_code)}
+                      whileHover={isDeleting ? {} : { scale: 1.01 }}
+                      whileTap={isDeleting ? {} : { scale: 0.99 }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <code className="text-display-sm font-display text-ink">
+                            {room.room_code}
+                          </code>
+                          {isCached && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium" title={t('rooms.cachedKey')}>
+                              {t('rooms.cachedKey')}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted">
+                          {room.member_count} {t('rooms.members')}
+                          {'file_count' in room && (room as AdminRoomRow).file_count !== undefined && (
+                            <> · {(room as AdminRoomRow).file_count} {t('rooms.files')}</>
+                          )}
                         </span>
-                      )}
-                    </div>
-                    <span className="text-xs text-muted">
-                      {room.member_count} {t('rooms.members')}
-                      {'file_count' in room && (room as AdminRoomRow).file_count !== undefined && (
-                        <> · {(room as AdminRoomRow).file_count} {t('rooms.files')}</>
-                      )}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs text-muted-soft">
-                    {t('rooms.created')}: {new Date(room.created_at).toLocaleDateString()}
-                  </div>
-                </Card>
-              </motion.div>
-              );
-            })}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-xs text-muted-soft">
+                          {t('rooms.created')}: {new Date(room.created_at).toLocaleDateString()}
+                        </span>
+                        {/* Admin delete button */}
+                        {isAdmin && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={(e) => handleDeleteRoom(room.room_code, e as unknown as React.MouseEvent)}
+                            className="text-[10px] px-2 py-0.5"
+                            aria-label={`${t('rooms.deleteRoom')} ${room.room_code}`}
+                          >
+                            <svg
+                              className="w-3 h-3"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                            </svg>
+                            {t('rooms.deleteRoom')}
+                          </Button>
+                        )}
+                      </div>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </motion.div>
         )}
       </main>

@@ -22,6 +22,7 @@ import type {
   AdminStats,
   AdminRoomRow,
   DestroyRoomResponse,
+  DestroyAllRoomsResponse,
   SendMessageRequest,
   SendMessageResponse,
   ChatMessagesResponse,
@@ -291,6 +292,10 @@ export const api = {
     return request<Response>('GET', `/files/${fileId}/download`, undefined, { rawResponse: true });
   },
 
+  async getFileRaw(fileId: string): Promise<Response> {
+    return request<Response>('GET', `/files/${fileId}/raw`, undefined, { rawResponse: true });
+  },
+
   async getFileInfo(fileId: string): Promise<FileMetaDTO> {
     const res = await request<ApiResponse<FileMetaDTO>>('GET', `/files/${fileId}/info`);
     return res.data!;
@@ -316,6 +321,11 @@ export const api = {
       current_password: currentPassword,
       new_password: newPassword,
     });
+  },
+
+  async destroyAllRooms(): Promise<DestroyAllRoomsResponse> {
+    const res = await request<ApiResponse<DestroyAllRoomsResponse>>('DELETE', '/admin/rooms');
+    return res.data!;
   },
 
   // === WebSocket ===
