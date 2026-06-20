@@ -45,53 +45,47 @@ export { RoomDO } from './do/room';
 const app = new Hono<AppContext>();
 
 // ---- CORS Middleware ----
-// TODO: Restrict to known origins in production (e.g., array of allowed domains).
-// For now, use a function that echoes the origin if present, falling back to '*'.
 app.use('*', cors({
-  origin: (origin) => origin || '*',
+  origin: (origin) => origin || 'https://epheia-files.pages.dev',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
+  credentials: true,
   maxAge: 86400,
 }));
 
 // ---- Auth Middleware ----
-// Extracts Bearer token from Authorization header, validates against KV,
-// and attaches session + sessionToken to context.
-// Applied to all routes except /api/auth/login and /api/ws/connect
+// Cookie-based auth: reads epheia_session cookie.
+// Falls back to Authorization: Bearer header for API/CLI compatibility.
 app.use('/api/*', async (c, next) => {
-  // Skip auth for login endpoint, health check, and WS connect (uses ticket-based auth)
   if (c.req.path === '/api/auth/login' || c.req.path === '/api/health') {
     return next();
   }
-
-  // Skip auth for WS connect — it uses ticket validation instead
   if (c.req.path === '/api/ws/connect') {
     return next();
   }
-
-  // Skip auth for public file access endpoint
-  // Public files are explicitly marked as publicly accessible and do not require authentication
+  // Skip auth for public file access
   if (c.req.path.match(/\/api\/files\/[^/]+\/public/)) {
     return next();
   }
 
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    // Allow OPTIONS (CORS preflight) without auth
-    if (c.req.method === 'OPTIONS') {
-      return next();
+  // Priority 1: HttpOnly cookie (browser sessions)
+  const cookieHeader = c.req.header('Cookie') || '';
+  const cookieMatch = cookieHeader.match(/epheia_session=([^;]+)/);
+  let token = cookieMatch ? cookieMatch[1] : null;
+
+  // Priority 2: Authorization header (API/CLI clients)
+  if (!token) {
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
     }
-    return c.json(
-      { success: false, error: 'Missing or invalid Authorization header', code: 'UNAUTHORIZED' },
-      401
-    );
   }
 
-  const token = authHeader.slice(7).trim();
   if (!token) {
+    if (c.req.method === 'OPTIONS') return next();
     return c.json(
-      { success: false, error: 'Empty token', code: 'UNAUTHORIZED' },
+      { success: false, error: 'Missing authentication', code: 'UNAUTHORIZED' },
       401
     );
   }
@@ -117,6 +111,8 @@ app.post('/api/auth/logout', async (c) => {
   if (token) {
     await destroySession(c.env, token);
   }
+  // Clear the session cookie
+  c.header('Set-Cookie', 'epheia_session=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0');
   return c.json({ success: true, data: { success: true } });
 });
 

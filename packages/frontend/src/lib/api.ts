@@ -91,6 +91,7 @@ async function request<T>(
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers,
+    credentials: 'include', // Cookie-based auth: browser sends epheia_session cookie automatically
     body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
 
@@ -182,8 +183,8 @@ export const api = {
   },
 
   async listRooms(): Promise<RoomInfo[]> {
-    const res = await request<ApiResponse<RoomInfo[]>>('GET', '/rooms');
-    return res.data!;
+    const res = await request<ApiResponse<{ rooms: RoomInfo[] }>>('GET', '/rooms');
+    return res.data!.rooms;
   },
 
   async destroyRoom(roomCode: string): Promise<DestroyRoomResponse> {

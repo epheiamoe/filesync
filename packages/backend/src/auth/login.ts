@@ -125,6 +125,9 @@ async function handleAdminLogin(
 
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
+  // Set HttpOnly cookie for session persistence across refreshes
+  c.header('Set-Cookie', `epheia_session=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=604800`);
+
   return c.json(
     {
       success: true,
@@ -197,6 +200,8 @@ async function handleApiKeyLogin(
   const token = await createSession(c.env, 'api_key', scope);
 
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  c.header('Set-Cookie', `epheia_session=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`);
 
   return c.json(
     {
@@ -275,6 +280,8 @@ async function handleTempCodeLogin(
   const token = await createSession(c.env, 'temp_credential', scope);
 
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  c.header('Set-Cookie', `epheia_session=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=86400`);
 
   return c.json(
     {

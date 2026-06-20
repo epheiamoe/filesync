@@ -352,7 +352,7 @@ export function RoomPage() {
             );
           }
 
-          await api.completeUpload(
+          const completeRes = await api.completeUpload(
             initRes.upload_id,
             initRes.r2_key,
             parts,
@@ -363,6 +363,21 @@ export function RoomPage() {
             expiresAt,
             currentRoom.id,
           );
+
+          // BUG FIX 1A: Immediately add file to store so it appears in both views
+          const fileMeta: FileMetaDTO = {
+            id: completeRes.file_id,
+            room_id: currentRoom.id,
+            uploader_session_id: session?.token || '',
+            encrypted_filename: encryptedFilename,
+            encrypted_meta: '',
+            file_size: encrypted.byteLength,
+            mime_type: file.type || 'application/octet-stream',
+            visibility: visibility as FileMetaDTO['visibility'],
+            expires_at: expiresAt,
+            created_at: new Date().toISOString(),
+          };
+          addFile(fileMeta);
 
           setUploadTasks((prev) =>
             prev.map((t) =>

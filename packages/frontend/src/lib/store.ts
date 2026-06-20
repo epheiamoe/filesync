@@ -109,7 +109,13 @@ function loadSavedSession(): SessionInfo | null {
     if (!saved) return null;
     const parsed = JSON.parse(saved);
     if (parsed && typeof parsed.token === 'string' && typeof parsed.accountType === 'string') {
-      return parsed as SessionInfo;
+      // BUG FIX 4A: also validate scope field to prevent delete buttons from disappearing
+      return {
+        token: parsed.token,
+        accountType: parsed.accountType,
+        scope: typeof parsed.scope === 'string' ? parsed.scope : '',
+        expiresAt: parsed.expiresAt || '',
+      } as SessionInfo;
     }
     return null;
   } catch {

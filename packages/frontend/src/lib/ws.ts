@@ -164,8 +164,10 @@ export class RoomSocket {
   }
 
   private handleServerMessage(raw: Record<string, unknown>): void {
-    const event = raw.event as string;
-    const payload = raw.data as Record<string, unknown> | undefined;
+    // Server sends { type, payload, sender_session_id, device_label, timestamp }
+    // NOT { event, data } — fixing protocol mismatch (Bug 1C)
+    const event = (raw.type as string) || (raw.event as string); // support both for backward compat
+    const payload = (raw.payload as Record<string, unknown>) || (raw.data as Record<string, unknown>) || {};
 
     switch (event) {
       case 'message':

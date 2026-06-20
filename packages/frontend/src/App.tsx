@@ -117,9 +117,9 @@ export function App() {
       </AnimatePresence>
       <ToastContainer />
 
-      {/* PWA install prompt */}
+      {/* PWA install prompt — small icon in bottom-right, can be dismissed */}
       {installPrompt && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[1000]">
+        <div className="fixed bottom-4 right-4 z-50">
           <button
             onClick={async () => {
               await installPrompt.prompt();
@@ -128,9 +128,20 @@ export function App() {
                 setInstallPrompt(null);
               }
             }}
-            className="px-5 py-3 bg-primary text-on-primary rounded-lg text-sm font-medium shadow-lg hover:bg-primary-active"
+            className="w-10 h-10 flex items-center justify-center rounded-full bg-primary text-on-primary shadow-lg hover:bg-primary-active transition-colors"
+            title="Install App"
+            aria-label="Install App"
           >
-            Install App
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setInstallPrompt(null)}
+            className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center rounded-full bg-hairline text-muted hover:bg-muted-soft/20 text-xs"
+            aria-label="Dismiss"
+          >
+            ×
           </button>
         </div>
       )}
