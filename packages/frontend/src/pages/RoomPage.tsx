@@ -11,10 +11,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { getRoomKey, decryptText } from '@/lib/crypto';
+import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString } from '@/lib/crypto';
+import { parseDeviceLabel } from '@/lib/device';
 import { RoomSocket } from '@/lib/ws';
 import { TabBar } from '@/components/ui/TabBar';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatPage } from '@/components/chat/ChatPage';
 import { TransferPage } from '@/components/transfer/TransferPage';
@@ -39,16 +41,64 @@ export function RoomPage() {
 
   const [activeTab, setActiveTab] = useState('chat');
   const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
   const [error, setError] = useState('');
+  const [needsKey, setNeedsKey] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
   const [ws, setWs] = useState<RoomSocket | null>(null);
   const [decryptedMessages, setDecryptedMessages] = useState<Map<string, string>>(new Map());
 
-  // Load room info
+  // Load room info — auto-join with cached key, or prompt for key input
   useEffect(() => {
     if (!code) return;
     setLoading(true);
+    setError('');
+    setNeedsKey(false);
 
-    const loadRoom = async () => {
+    const initRoom = async () => {
+      // Check if we have a cached key for this room
+      let roomKey = getRoomKey(code);
+
+      // If no cached key, check session storage for a just-entered key
+      if (!roomKey) {
+        const sessionKey = sessionStorage.getItem(`join_key_${code}`);
+        if (sessionKey) {
+          try {
+            roomKey = decodeShareString(sessionKey)?.key ?? null;
+            if (roomKey) {
+              storeRoomKey(code, roomKey);
+              sessionStorage.removeItem(`join_key_${code}`);
+            }
+          } catch { /* ignore */ }
+        }
+      }
+
+      // If we have the key, auto-join
+      if (roomKey) {
+        setJoining(true);
+        try {
+          const keyHash = await hashKey(roomKey);
+          const deviceLabel = parseDeviceLabel();
+          await api.joinRoom(code, keyHash, deviceLabel);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : '';
+          // 403/409 means already a member (ok) or key mismatch
+          if (!msg.includes('already') && !msg.includes('member')) {
+            setError(msg || t('rooms.keyMismatch'));
+            setLoading(false);
+            setJoining(false);
+            return;
+          }
+        }
+        setJoining(false);
+      } else {
+        // No key cached — show key input prompt
+        setNeedsKey(true);
+        setLoading(false);
+        return;
+      }
+
+      // Now load room info and messages
       try {
         const roomInfo = await api.getRoomInfo(code);
         setCurrentRoom({
@@ -69,8 +119,48 @@ export function RoomPage() {
       }
     };
 
-    loadRoom();
+    initRoom();
   }, [code, setCurrentRoom, setMessages]);
+
+  // Handle key input form submission
+  const handleKeySubmit = async () => {
+    if (!code || !keyInput.trim()) return;
+    setJoining(true);
+    setError('');
+    try {
+      const decoded = decodeShareString(keyInput.trim());
+      if (!decoded || decoded.roomCode !== code) {
+        setError(t('rooms.invalidShareString'));
+        setJoining(false);
+        return;
+      }
+      const keyHash = await hashKey(decoded.key);
+      const deviceLabel = parseDeviceLabel();
+      await api.joinRoom(code, keyHash, deviceLabel);
+      storeRoomKey(code, decoded.key);
+
+      // Reload — now with the key cached, the effect above will auto-join
+      setNeedsKey(false);
+      setJoining(false);
+      setLoading(true);
+      setKeyInput('');
+
+      const roomInfo = await api.getRoomInfo(code);
+      setCurrentRoom({
+        id: roomInfo.id,
+        roomCode: roomInfo.room_code,
+        createdAt: roomInfo.created_at,
+        memberCount: roomInfo.member_count,
+      });
+      const msgRes = await api.getMessages(roomInfo.id);
+      setMessages(msgRes.messages);
+      setLoading(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('rooms.invalidShareString');
+      setError(message);
+      setJoining(false);
+    }
+  };
 
   // Connect WebSocket
   useEffect(() => {
@@ -139,10 +229,40 @@ export function RoomPage() {
     { key: 'transfer', label: t('transfer.title') },
   ];
 
-  if (loading) {
+  if (loading || joining) {
     return (
-      <div className="min-h-screen bg-canvas flex items-center justify-center">
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-3">
         <Spinner size="lg" />
+        <p className="text-sm text-muted">{joining ? t('rooms.joining') : t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  // Key input prompt — shown when no cached key available
+  if (needsKey) {
+    return (
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-4 px-4">
+        <div className="text-center max-w-sm">
+          <h2 className="text-title-lg font-display text-ink mb-2">{t('rooms.enterKeyTitle')}</h2>
+          <p className="text-sm text-muted mb-4">{t('rooms.enterKeyDesc', { code: code! })}</p>
+        </div>
+        <div className="flex flex-col gap-3 w-full max-w-sm">
+          <Input
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder={t('rooms.shareKeyPlaceholder')}
+            className="w-full"
+            onKeyDown={(e) => e.key === 'Enter' && handleKeySubmit()}
+            autoFocus
+          />
+          <Button variant="primary" onClick={handleKeySubmit} loading={joining}>
+            {t('rooms.join')}
+          </Button>
+          {error && <p className="text-sm text-error text-center" role="alert">{error}</p>}
+        </div>
+        <Button variant="ghost" onClick={() => navigate('/rooms')}>
+          {t('common.back')}
+        </Button>
       </div>
     );
   }

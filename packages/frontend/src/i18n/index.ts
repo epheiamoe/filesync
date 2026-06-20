@@ -68,6 +68,11 @@ const translations: Translations = {
   'rooms.noRooms': { 'zh-CN': '还没有房间，创建一个吧', 'en-US': 'No rooms yet, create one' },
   'rooms.keyMismatch': { 'zh-CN': '密钥不匹配', 'en-US': 'Key mismatch' },
   'rooms.roomNotFound': { 'zh-CN': '房间不存在', 'en-US': 'Room not found' },
+  'rooms.cachedKey': { 'zh-CN': '已缓存', 'en-US': 'Cached' },
+  'rooms.enterKeyTitle': { 'zh-CN': '需要房间密钥', 'en-US': 'Room key required' },
+  'rooms.enterKeyDesc': { 'zh-CN': '请输入房间 {code} 的分享字符串以加入', 'en-US': 'Enter the share string for room {code} to join' },
+  'rooms.invalidShareString': { 'zh-CN': '无效的分享字符串或房间不匹配', 'en-US': 'Invalid share string or room mismatch' },
+  'rooms.joining': { 'zh-CN': '正在加入房间...', 'en-US': 'Joining room...' },
 
   // ---- Chat ----
   'chat.title': { 'zh-CN': '聊天', 'en-US': 'Chat' },
@@ -125,6 +130,11 @@ const translations: Translations = {
   'admin.destroyRoom': { 'zh-CN': '销毁房间', 'en-US': 'Destroy Room' },
   'admin.destroyConfirm': { 'zh-CN': '确定要销毁此房间吗？此操作不可撤销，将删除所有消息和文件。', 'en-US': 'Are you sure you want to destroy this room? This action cannot be undone and will delete all messages and files.' },
   'admin.destroyed': { 'zh-CN': '房间已销毁', 'en-US': 'Room destroyed' },
+  'admin.changePassword': { 'zh-CN': '修改密码', 'en-US': 'Change Password' },
+  'admin.currentPassword': { 'zh-CN': '当前密码', 'en-US': 'Current password' },
+  'admin.newPassword': { 'zh-CN': '新密码（至少8位）', 'en-US': 'New password (min 8 chars)' },
+  'admin.pwTooShort': { 'zh-CN': '新密码至少需要8个字符', 'en-US': 'New password must be at least 8 characters' },
+  'admin.pwChanged': { 'zh-CN': '密码已修改成功', 'en-US': 'Password changed successfully' },
 
   // ---- E2EE ----
   'e2ee.keyGenerated': { 'zh-CN': '密钥已生成', 'en-US': 'Key Generated' },
@@ -197,27 +207,37 @@ export function initI18n(): void {
  * @param key - Translation key (e.g. 'login.title')
  * @returns Translated string
  */
-export function t(key: string): string {
+export function t(key: string, params?: Record<string, string>): string {
   const entry = translations[key];
   if (!entry) {
-    // Key not found in translations — return key as fallback
     console.warn(`[i18n] Missing translation for key: "${key}"`);
     return key;
   }
 
+  let result: string;
+
   // Try current language first
   if (entry[currentLang]) {
-    return entry[currentLang];
+    result = entry[currentLang];
   }
-
   // Fallback to English
-  if (entry['en-US']) {
-    return entry['en-US'];
+  else if (entry['en-US']) {
+    result = entry['en-US'];
+  }
+  // Last resort
+  else {
+    console.warn(`[i18n] No translation for key: "${key}" in lang: "${currentLang}"`);
+    return key;
   }
 
-  // Last resort
-  console.warn(`[i18n] No translation for key: "${key}" in lang: "${currentLang}"`);
-  return key;
+  // Parameter substitution: replace {name} with params[name]
+  if (params) {
+    for (const [name, value] of Object.entries(params)) {
+      result = result.replace(`{${name}}`, value);
+    }
+  }
+
+  return result;
 }
 
 export type { Translations };

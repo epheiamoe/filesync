@@ -36,6 +36,7 @@ import { handleWsTicket, handleWsConnect } from './ws/handler';
 // ---- Admin ----
 import { handleAdminStats, handleAdminRooms } from './admin/stats';
 import { handleDestroyRoom } from './admin/rooms';
+import { handleChangePassword } from './admin/password';
 
 // ---- DO (must be exported for wrangler) ----
 export { RoomDO } from './do/room';
@@ -167,6 +168,7 @@ app.get('/api/ws/connect', handleWsConnect);
 app.get('/api/admin/stats', handleAdminStats);
 app.get('/api/admin/rooms', handleAdminRooms);
 app.delete('/api/admin/rooms/:code', handleDestroyRoom);
+app.put('/api/admin/password', handleChangePassword);
 
 // ---- Health Check ----
 app.get('/api/health', (c) => {

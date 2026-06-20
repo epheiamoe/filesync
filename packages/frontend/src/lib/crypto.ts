@@ -344,6 +344,28 @@ export function removeRoomKey(roomCode: string): void {
   }
 }
 
+/** Check if a room key is cached in localStorage. */
+export function hasRoomKey(roomCode: string): boolean {
+  return getRoomKey(roomCode) !== null;
+}
+
+/** List all room codes that have a cached key in localStorage. */
+export function listCachedRoomCodes(): string[] {
+  try {
+    const codes: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(KEY_STORAGE_PREFIX) && key.endsWith('_key')) {
+        const roomCode = key.slice(KEY_STORAGE_PREFIX.length, -4); // strip prefix and '_key'
+        codes.push(roomCode);
+      }
+    }
+    return codes;
+  } catch {
+    return [];
+  }
+}
+
 // ---- Utility Helpers ----
 
 function bufferToHex(buffer: Uint8Array): string {

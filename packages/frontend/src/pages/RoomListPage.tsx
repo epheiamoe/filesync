@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString } from '@/lib/crypto';
+import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString, hasRoomKey } from '@/lib/crypto';
 import { parseDeviceLabel } from '@/lib/device';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -72,6 +72,10 @@ export function RoomListPage() {
 
       // Store the room key
       storeRoomKey(result.room_code, key);
+
+      // Auto-join the room immediately after creation
+      const deviceLabel = parseDeviceLabel();
+      await api.joinRoom(result.room_code, keyHash, deviceLabel);
 
       // Generate share string
       const shareString = encodeShareString(result.room_code, key);
@@ -259,7 +263,9 @@ export function RoomListPage() {
               visible: { transition: { staggerChildren: 0.05 } },
             }}
           >
-            {rooms.map((room) => (
+            {rooms.map((room) => {
+              const isCached = hasRoomKey(room.room_code);
+              return (
               <motion.div
                 key={room.id}
                 variants={{
@@ -273,15 +279,24 @@ export function RoomListPage() {
               >
                 <Card
                   padding="md"
-                  className="cursor-pointer hover:shadow-sm transition-shadow"
+                  className={`cursor-pointer hover:shadow-sm transition-shadow ${
+                    isCached ? 'bg-blue-50/40 border-blue-200/60' : ''
+                  }`}
                   onClick={() => handleRoomClick(room.room_code)}
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                 >
                   <div className="flex items-center justify-between">
-                    <code className="text-display-sm font-display text-ink">
-                      {room.room_code}
-                    </code>
+                    <div className="flex items-center gap-2">
+                      <code className="text-display-sm font-display text-ink">
+                        {room.room_code}
+                      </code>
+                      {isCached && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium" title={t('rooms.cachedKey')}>
+                          {t('rooms.cachedKey')}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-muted">
                       {room.member_count} {t('rooms.members')}
                       {'file_count' in room && (room as AdminRoomRow).file_count !== undefined && (
@@ -294,7 +309,8 @@ export function RoomListPage() {
                   </div>
                 </Card>
               </motion.div>
-            ))}
+              );
+            })}
           </motion.div>
         )}
       </main>

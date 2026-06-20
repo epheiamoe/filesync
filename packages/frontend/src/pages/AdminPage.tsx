@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import type { AdminStats } from '@shared/types';
@@ -22,6 +23,11 @@ export function AdminPage() {
   const [creatingCred, setCreatingCred] = useState(false);
   const [newCredCode, setNewCredCode] = useState('');
   const [rooms, setRooms] = useState<Awaited<ReturnType<typeof api.getAdminRooms>>>([]);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwChanging, setPwChanging] = useState(false);
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwOk, setPwOk] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -62,6 +68,28 @@ export function AdminPage() {
       await loadData();
     } catch {
       // ignore
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!pwCurrent || !pwNew || pwNew.length < 8) {
+      setPwMsg(t('admin.pwTooShort'));
+      return;
+    }
+    setPwChanging(true);
+    setPwMsg('');
+    setPwOk(false);
+    try {
+      await api.changePassword(pwCurrent, pwNew);
+      setPwMsg(t('admin.pwChanged'));
+      setPwOk(true);
+      setPwCurrent('');
+      setPwNew('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : t('common.error');
+      setPwMsg(msg);
+    } finally {
+      setPwChanging(false);
     }
   };
 
@@ -153,6 +181,39 @@ export function AdminPage() {
                   </motion.code>
                 )}
               </div>
+            </section>
+
+            {/* Change Password */}
+            <section>
+              <h2 className="text-title-md font-display text-ink mb-4">{t('admin.changePassword')}</h2>
+              <Card padding="md" className="max-w-md">
+                <div className="flex flex-col gap-3">
+                  <Input
+                    type="password"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                    placeholder={t('admin.currentPassword')}
+                  />
+                  <Input
+                    type="password"
+                    value={pwNew}
+                    onChange={(e) => setPwNew(e.target.value)}
+                    placeholder={t('admin.newPassword')}
+                  />
+                  <Button
+                    variant="primary"
+                    loading={pwChanging}
+                    onClick={handleChangePassword}
+                  >
+                    {t('admin.changePassword')}
+                  </Button>
+                  {pwMsg && (
+                    <p className={`text-sm ${pwOk ? 'text-success' : 'text-error'}`} role="alert">
+                      {pwMsg}
+                    </p>
+                  )}
+                </div>
+              </Card>
             </section>
 
             {/* Rooms */}

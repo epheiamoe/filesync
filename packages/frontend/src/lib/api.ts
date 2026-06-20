@@ -311,6 +311,13 @@ export const api = {
     return res.data!.rooms;
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await request<ApiResponse<{ success: boolean }>>('PUT', '/admin/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  },
+
   // === WebSocket ===
   async getWsTicket(roomCode: string): Promise<WsTicketResponse> {
     const token = getToken();
