@@ -105,7 +105,7 @@ export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps
                 <canvas
                   ref={canvasRef}
                   className="border-4 border-hairline rounded-lg"
-                  aria-label="房间分享二维码"
+                  aria-label={t('rooms.qrCode')}
                 />
               </motion.div>
 

@@ -44,9 +44,10 @@ export { RoomDO } from './do/room';
 const app = new Hono<AppContext>();
 
 // ---- CORS Middleware ----
-// Allow all origins for development; restrict in production.
+// TODO: Restrict to known origins in production (e.g., array of allowed domains).
+// For now, use a function that echoes the origin if present, falling back to '*'.
 app.use('*', cors({
-  origin: '*',
+  origin: (origin) => origin || '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
@@ -58,8 +59,8 @@ app.use('*', cors({
 // and attaches session + sessionToken to context.
 // Applied to all routes except /api/auth/login and /api/ws/connect
 app.use('/api/*', async (c, next) => {
-  // Skip auth for login endpoint and WS connect (uses ticket-based auth)
-  if (c.req.path === '/api/auth/login') {
+  // Skip auth for login endpoint, health check, and WS connect (uses ticket-based auth)
+  if (c.req.path === '/api/auth/login' || c.req.path === '/api/health') {
     return next();
   }
 

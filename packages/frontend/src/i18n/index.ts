@@ -28,6 +28,11 @@ const translations: Translations = {
   'common.collapse': { 'zh-CN': '收起', 'en-US': 'Collapse' },
   'common.empty': { 'zh-CN': '暂无数据', 'en-US': 'No data' },
   'common.offline': { 'zh-CN': '您当前处于离线状态', 'en-US': 'You are currently offline' },
+  'common.closeNotification': { 'zh-CN': '关闭通知', 'en-US': 'Close notification' },
+  'common.notifications': { 'zh-CN': '通知', 'en-US': 'Notifications' },
+
+  // ---- Navigation ----
+  'nav.pageNav': { 'zh-CN': '页面导航', 'en-US': 'Page navigation' },
 
   // ---- Login ----
   'login.title': { 'zh-CN': '登录', 'en-US': 'Login' },
@@ -58,6 +63,7 @@ const translations: Translations = {
   'rooms.shareString': { 'zh-CN': '分享字符串', 'en-US': 'Share String' },
   'rooms.copyShare': { 'zh-CN': '复制分享字符串', 'en-US': 'Copy Share String' },
   'rooms.exportKey': { 'zh-CN': '导出密钥', 'en-US': 'Export Key' },
+  'rooms.qrCode': { 'zh-CN': '房间分享二维码', 'en-US': 'Room share QR code' },
   'rooms.created': { 'zh-CN': '已创建', 'en-US': 'Created' },
   'rooms.noRooms': { 'zh-CN': '还没有房间，创建一个吧', 'en-US': 'No rooms yet, create one' },
   'rooms.keyMismatch': { 'zh-CN': '密钥不匹配', 'en-US': 'Key mismatch' },

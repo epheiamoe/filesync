@@ -52,7 +52,10 @@ export function setUnauthorizedHandler(fn: () => void): void {
 
 // ---- Base fetch ----
 
-const BASE_URL = '/api';
+// Dev: proxy to local wrangler. Production: direct Worker URL.
+const BASE_URL = import.meta.env.DEV
+  ? '/api'
+  : 'https://epheia-files-api.epheia.workers.dev/api';
 
 class ApiError extends Error {
   constructor(
@@ -177,8 +180,8 @@ export const api = {
     return res.data!;
   },
 
-  async listRooms(): Promise<AdminRoomRow[]> {
-    const res = await request<ApiResponse<AdminRoomRow[]>>('GET', '/rooms');
+  async listRooms(): Promise<RoomInfo[]> {
+    const res = await request<ApiResponse<RoomInfo[]>>('GET', '/rooms');
     return res.data!;
   },
 
@@ -190,7 +193,7 @@ export const api = {
   // === Chat ===
   async getMessages(roomId: string, cursor?: string): Promise<ChatMessagesResponse> {
     const params = new URLSearchParams({ room_id: roomId });
-    if (cursor) params.set('cursor', cursor);
+    if (cursor) params.set('before', cursor);
     params.set('limit', '50');
     const res = await request<ApiResponse<ChatMessagesResponse>>('GET', `/chat/messages?${params}`);
     return res.data!;
@@ -207,8 +210,8 @@ export const api = {
     return res.data!;
   },
 
-  async recallMessage(messageId: string): Promise<DeleteMessageResponse> {
-    const res = await request<ApiResponse<DeleteMessageResponse>>('DELETE', `/chat/messages/${messageId}`);
+  async recallMessage(messageId: string, roomId: string): Promise<DeleteMessageResponse> {
+    const res = await request<ApiResponse<DeleteMessageResponse>>('DELETE', `/chat/messages/${messageId}`, { room_id: roomId });
     return res.data!;
   },
 
@@ -304,13 +307,14 @@ export const api = {
   },
 
   async getAdminRooms(): Promise<AdminRoomRow[]> {
-    const res = await request<ApiResponse<AdminRoomRow[]>>('GET', '/admin/rooms');
-    return res.data!;
+    const res = await request<ApiResponse<{ rooms: AdminRoomRow[] }>>('GET', '/admin/rooms');
+    return res.data!.rooms;
   },
 
   // === WebSocket ===
-  async getWsTicket(): Promise<WsTicketResponse> {
-    const res = await request<ApiResponse<WsTicketResponse>>('GET', '/ws');
+  async getWsTicket(roomCode: string): Promise<WsTicketResponse> {
+    const token = getToken();
+    const res = await request<ApiResponse<WsTicketResponse>>('GET', `/ws?room=${encodeURIComponent(roomCode)}&token=${encodeURIComponent(token || '')}`);
     return res.data!;
   },
 

@@ -19,12 +19,12 @@ import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QRShare } from '@/components/shared/QRShare';
 import { Spinner } from '@/components/ui/Spinner';
-import type { AdminRoomRow } from '@shared/types';
+import type { AdminRoomRow, RoomInfo } from '@shared/types';
 
 export function RoomListPage() {
   const navigate = useNavigate();
   const { session, logout } = useStore();
-  const [rooms, setRooms] = useState<AdminRoomRow[]>([]);
+  const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -284,8 +284,8 @@ export function RoomListPage() {
                     </code>
                     <span className="text-xs text-muted">
                       {room.member_count} {t('rooms.members')}
-                      {room.file_count !== undefined && (
-                        <> · {room.file_count} {t('rooms.files')}</>
+                      {'file_count' in room && (room as AdminRoomRow).file_count !== undefined && (
+                        <> · {(room as AdminRoomRow).file_count} {t('rooms.files')}</>
                       )}
                     </span>
                   </div>

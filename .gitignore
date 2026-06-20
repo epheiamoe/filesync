@@ -10,3 +10,5 @@ out-of-date/
 *.log
 .DS_Store
 Thumbs.db
+.playwright-mcp/
+*.png

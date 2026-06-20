@@ -98,11 +98,30 @@ export interface Toast {
 
 let toastCounter = 0;
 
+// Restore session from localStorage on page load so auth survives refresh.
+// Must read synchronously before first render, avoiding the useEffect timing gap
+// where ProtectedRoute would reject before the effect fires.
+function loadSavedSession(): SessionInfo | null {
+  try {
+    const saved = localStorage.getItem('epheia_session');
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (parsed && typeof parsed.token === 'string' && typeof parsed.accountType === 'string') {
+      return parsed as SessionInfo;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const savedSession = loadSavedSession();
+
 export const useStore = create<AppState>((set) => ({
   // ---- Initial State ----
-  token: null,
-  session: null,
-  isAuthenticated: false,
+  token: savedSession?.token ?? null,
+  session: savedSession,
+  isAuthenticated: !!savedSession,
   currentRoom: null,
   messages: [],
   files: [],

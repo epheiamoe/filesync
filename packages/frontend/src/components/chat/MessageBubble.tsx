@@ -37,7 +37,7 @@ export function MessageBubble({ message, decryptedContent, roomCode }: MessageBu
 
   const handleRecall = useCallback(async () => {
     try {
-      await api.recallMessage(message.id);
+      await api.recallMessage(message.id, message.room_id);
       removeMessage(message.id);
       addToast({ type: 'info', message: t('chat.recalled') });
     } catch {

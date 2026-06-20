@@ -47,7 +47,7 @@ export class RoomSocket {
 
     try {
       // Get a short-lived ticket for WebSocket connection
-      const { ticket } = await api.getWsTicket();
+      const { ticket } = await api.getWsTicket(this.roomCode);
 
       // Build WebSocket URL
       const wsUrl = this.buildWsUrl(ticket);

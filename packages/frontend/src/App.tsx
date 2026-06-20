@@ -66,21 +66,6 @@ export function App() {
     setDeviceLabel(parseDeviceLabel());
   }, [setDeviceLabel]);
 
-  // Restore session from localStorage
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('epheia_session');
-      if (stored) {
-        const session = JSON.parse(stored);
-        if (session.token && session.accountType) {
-          useStore.getState().login(session);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
   // PWA install prompt
   useEffect(() => {
     const handler = (e: Event) => {

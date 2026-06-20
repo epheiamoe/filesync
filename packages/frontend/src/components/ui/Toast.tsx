@@ -3,6 +3,7 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
+import { t } from '@/i18n';
 import { useStore, type Toast as ToastType } from '@/lib/store';
 
 function ToastItem({ toast }: { toast: ToastType }) {
@@ -39,7 +40,7 @@ function ToastItem({ toast }: { toast: ToastType }) {
       <button
         onClick={() => removeToast(toast.id)}
         className="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
-        aria-label="关闭通知"
+        aria-label={t('common.closeNotification')}
       >
         ×
       </button>
@@ -54,7 +55,7 @@ export function ToastContainer() {
     <div
       className="fixed bottom-6 right-6 z-[1100] flex flex-col gap-2"
       aria-live="polite"
-      aria-label="通知"
+      aria-label={t('common.notifications')}
     >
       <AnimatePresence>
         {toasts.map((toast) => (

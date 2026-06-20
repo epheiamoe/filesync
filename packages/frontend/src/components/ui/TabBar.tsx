@@ -7,6 +7,7 @@
  */
 
 import { motion } from 'framer-motion';
+import { t } from '@/i18n';
 
 export interface Tab {
   key: string;
@@ -27,7 +28,7 @@ export function TabBar({ tabs, activeTab, onChange, className = '' }: TabBarProp
     <nav
       className={`flex gap-1 p-1 bg-canvas-card/50 rounded-lg ${className}`}
       role="tablist"
-      aria-label="页面导航"
+      aria-label={t('nav.pageNav')}
     >
       {tabs.map((tab) => {
         const isActive = tab.key === activeTab;
