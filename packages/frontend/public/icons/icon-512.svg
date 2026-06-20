@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#faf9f5"/>
+  <!-- File icon in coral -->
+  <path d="M144 128h128l88 88v192a24 24 0 01-24 24H144a24 24 0 01-24-24V152a24 24 0 0124-24z" fill="#cc785c" opacity="0.9"/>
+  <path d="M272 128v80a8 8 0 008 8h80" fill="#a9583e" opacity="0.7"/>
+  <!-- Arrow -->
+  <path d="M208 256l48 48 48-48" stroke="#faf9f5" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M256 304V208" stroke="#faf9f5" stroke-width="16" stroke-linecap="round"/>
+</svg>

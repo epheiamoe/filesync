@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "pnpm --filter @epheia-files/backend dev",
+    "dev:frontend": "cd packages/frontend && npm run dev",
+    "build:frontend": "cd packages/frontend && npm run build",
     "deploy": "pnpm --filter @epheia-files/backend deploy",
     "test": "pnpm --filter @epheia-files/backend test",
     "lint": "pnpm -r lint"
