@@ -13,7 +13,7 @@
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
-import { api } from '@/lib/api';
+import { api, getApiBaseUrl } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { getRoomKey, decryptText } from '@/lib/crypto';
 import { Button } from '@/components/ui/Button';
@@ -82,10 +82,13 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
     }
   };
 
-  // View file — opens in new tab via the raw endpoint
+  // View file — opens in new tab via the raw endpoint.
+  // Uses absolute API URL because the frontend (Pages) and backend (Workers)
+  // are on different domains in production. A relative URL would hit the
+  // Pages domain, which has no API routes — the SPA would redirect to /.
   const handleView = useCallback(() => {
-    // Construct the full URL to the raw file endpoint
-    const rawUrl = `/api/files/${file.id}/raw`;
+    const apiBase = getApiBaseUrl();
+    const rawUrl = `${apiBase}/files/${file.id}/raw`;
     window.open(rawUrl, '_blank', 'noopener,noreferrer');
   }, [file.id]);
 

@@ -23,7 +23,7 @@
 import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { FileMetaDTO, FileListResponse } from '@epheia-files/shared';
+import type { FileMetaDTO, FileListResponse } from '@filesync/shared';
 
 // ---- Validation Schemas ----
 
@@ -153,6 +153,11 @@ export async function handleFileDownload(c: Context<AppContext>): Promise<Respon
     const isPublic = file.visibility === 'public';
 
     const headers = new Headers();
+    // Write R2-stored HTTP metadata first (sets Content-Type, Content-Length, etc.)
+    r2Object.writeHttpMetadata(headers);
+    // Then override with the correct MIME type from our database.
+    // R2 stores 'application/octet-stream' during multipart upload, which
+    // would break browser rendering for image/text/PDF files if not overridden.
     headers.set('Content-Type', file.mime_type);
     headers.set('Content-Disposition', isBrowserViewable ? 'inline' : 'attachment');
     // Only set X-File-Encrypted for private (encrypted) files
@@ -646,6 +651,11 @@ export async function handleRawFile(c: Context<AppContext>): Promise<Response> {
     }
 
     const headers = new Headers();
+    // Write R2-stored HTTP metadata first (sets Content-Type, Content-Length, etc.)
+    r2Object.writeHttpMetadata(headers);
+    // Then override with the correct MIME type from our database.
+    // R2 stores 'application/octet-stream' during multipart upload, which
+    // would break browser rendering for image/text/PDF files if not overridden.
     headers.set('Content-Type', file.mime_type);
     // Always use inline for the raw endpoint (browser rendering)
     headers.set('Content-Disposition', 'inline');
@@ -772,6 +782,11 @@ export async function handlePublicFile(c: Context<AppContext>): Promise<Response
     const isBrowserViewable = browserViewableTypes.some((t) => file.mime_type.startsWith(t));
 
     const headers = new Headers();
+    // Write R2-stored HTTP metadata first (sets Content-Type, Content-Length, etc.)
+    r2Object.writeHttpMetadata(headers);
+    // Then override with the correct MIME type from our database.
+    // R2 stores 'application/octet-stream' during multipart upload, which
+    // would break browser rendering for image/text/PDF files if not overridden.
     headers.set('Content-Type', file.mime_type);
     headers.set('Content-Disposition', isBrowserViewable ? 'inline' : 'attachment');
     headers.set('X-File-Id', fileId);

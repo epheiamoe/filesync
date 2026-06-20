@@ -26,7 +26,7 @@ import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { getRoomKey, decryptText } from '@/lib/crypto';
+import { getRoomKey, decryptText, decryptFile } from '@/lib/crypto';
 import { Button } from '@/components/ui/Button';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import { Lightbox } from '@/components/ui/Lightbox';
@@ -113,7 +113,11 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     decrypt();
   }, [file.encrypted_filename, roomCode]);
 
-  // Fetch image blob for inline display via the raw endpoint
+  // Fetch image blob for inline display via the raw endpoint.
+  // All files are stored encrypted in R2 (even "public" files are encrypted
+  // at the storage layer — visibility only controls auth). The X-File-Encrypted
+  // response header signals that the blob must be decrypted client-side
+  // before rendering.
   useEffect(() => {
     if (!isImage || isRecalled) return;
 
@@ -121,23 +125,34 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     const fetchImage = async () => {
       try {
         const response = await api.getFileRaw(file.id);
-        const blob = await response.blob();
+        const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+        let blob = await response.blob();
+
+        // Decrypt if needed (private files are stored encrypted in R2)
+        if (isEncrypted) {
+          const key = getRoomKey(roomCode);
+          if (key) {
+            const encryptedBuffer = await blob.arrayBuffer();
+            const decryptedBuffer = await decryptFile(key, encryptedBuffer);
+            blob = new Blob([decryptedBuffer], { type: file.mime_type });
+          }
+          // If no key, we show the encrypted blob anyway (broken image)
+          // which is better than a loading skeleton that never resolves.
+        }
+
         if (!revoked) {
           const url = URL.createObjectURL(blob);
           setImageBlobUrl(url);
         }
       } catch {
         // Image unavailable — silently fall back to file card display
-        setImageBlobUrl(null);
+        // by keeping imageBlobUrl as null (shows loading state)
       }
     };
     fetchImage();
 
     return () => {
       revoked = true;
-      if (imageBlobUrl) {
-        URL.revokeObjectURL(imageBlobUrl);
-      }
     };
     // Only re-fetch when file.id changes (not on imageBlobUrl change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,7 +196,24 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     setTextContentLoading(true);
     try {
       const response = await api.getFileRaw(file.id);
-      const content = await response.text();
+      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      let content: string;
+
+      if (isEncrypted) {
+        const key = getRoomKey(roomCode);
+        if (!key) {
+          addToast({ type: 'error', message: t('e2ee.decryptError') });
+          return;
+        }
+        const encryptedBlob = await response.blob();
+        const encryptedBuffer = await encryptedBlob.arrayBuffer();
+        const decryptedBuffer = await decryptFile(key, encryptedBuffer);
+        const decoder = new TextDecoder();
+        content = decoder.decode(decryptedBuffer);
+      } else {
+        content = await response.text();
+      }
+
       setTextContent(content);
       setTextModalOpen(true);
     } catch {
@@ -189,7 +221,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     } finally {
       setTextContentLoading(false);
     }
-  }, [file.id, addToast]);
+  }, [file.id, roomCode, addToast]);
 
   // Image right-click context menu
   const handleImageContextMenu = useCallback((e: React.MouseEvent) => {

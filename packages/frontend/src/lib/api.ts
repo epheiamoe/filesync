@@ -1,5 +1,5 @@
 /**
- * epheia-files API Client — Typed fetch wrapper for Worker API.
+ * filesync API Client — Typed fetch wrapper for Worker API.
  *
  * Auto-attaches Authorization header, handles 401 redirects,
  * and provides typed methods for all API endpoints.
@@ -56,7 +56,16 @@ export function setUnauthorizedHandler(fn: () => void): void {
 // Dev: proxy to local wrangler. Production: direct Worker URL.
 const BASE_URL = import.meta.env.DEV
   ? '/api'
-  : 'https://epheia-files-api.epheia.workers.dev/api';
+  : 'https://filesync-api.epheia.workers.dev/api';
+
+/**
+ * Returns the API base URL — for use in direct URL construction
+ * (e.g., window.open for files/raw). In dev, returns '/api';
+ * in production, returns the full Workers API URL.
+ */
+export function getApiBaseUrl(): string {
+  return BASE_URL;
+}
 
 class ApiError extends Error {
   constructor(
