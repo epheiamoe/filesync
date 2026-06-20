@@ -6,14 +6,17 @@
  * - Right content: list of files or texts (both drawn from the same data as Chat)
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
+import { api } from '@/lib/api';
+import { useStore } from '@/lib/store';
 import { FileList } from './FileList';
 import { TabBar } from '@/components/ui/TabBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { UploadZone } from './UploadZone';
 import { ExpandableText } from '@/components/ui/ExpandableText';
+import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import type { MessageDTO, FileMetaDTO } from '@/lib/store';
 
 interface TransferPageProps {
@@ -102,6 +105,13 @@ interface TextListItemProps {
 }
 
 function TextListItem({ message, decryptedContent }: TextListItemProps) {
+  const session = useStore((s) => s.session);
+  const removeMessage = useStore((s) => s.removeMessage);
+  const addToast = useStore((s) => s.addToast);
+  const [isDestroying, setIsDestroying] = useState(false);
+
+  const isOwnMessage = message.sender_session_id === session?.token;
+
   const time = new Date(message.created_at).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -111,34 +121,81 @@ function TextListItem({ message, decryptedContent }: TextListItemProps) {
     day: 'numeric',
   });
 
+  const handleCopy = useCallback(async () => {
+    if (!decryptedContent) return;
+    try {
+      await navigator.clipboard.writeText(decryptedContent);
+      addToast({ type: 'success', message: t('chat.copied') });
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    }
+  }, [decryptedContent, addToast]);
+
+  const handleRecall = useCallback(async () => {
+    try {
+      await api.recallMessage(message.id, message.room_id);
+      setIsDestroying(true);
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    }
+  }, [message.id, message.room_id, addToast]);
+
+  const handleDestroyed = useCallback(() => {
+    removeMessage(message.id);
+    addToast({ type: 'info', message: t('chat.recalled') });
+  }, [message.id, removeMessage, addToast]);
+
   return (
-    <motion.div
-      variants={{
-        hidden: { opacity: 0, y: 10 },
-        visible: {
-          opacity: 1,
-          y: 0,
-          transition: { type: 'spring', stiffness: 500, damping: 40 },
-        },
-      }}
-      className="bg-canvas-card border border-hairline-soft rounded-lg p-3"
-      role="listitem"
-    >
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs text-muted-soft">
-          {message.device_label || t('common.loading')}
-        </span>
-        <span className="text-xs text-muted-soft">
-          {date} {time}
-        </span>
-      </div>
-      <div>
-        {decryptedContent ? (
-          <ExpandableText text={decryptedContent} maxLength={300} />
-        ) : (
-          <p className="text-sm text-muted-soft">{t('common.loading')}</p>
-        )}
-      </div>
-    </motion.div>
+    <DestroyAnimation isDestroying={isDestroying} onDestroyed={handleDestroyed}>
+      <motion.div
+        variants={{
+          hidden: { opacity: 0, y: 10 },
+          visible: {
+            opacity: 1,
+            y: 0,
+            transition: { type: 'spring', stiffness: 500, damping: 40 },
+          },
+        }}
+        className="bg-canvas-card border border-hairline-soft rounded-lg p-3"
+        role="listitem"
+      >
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs text-muted-soft">
+            {message.device_label || t('common.loading')}
+          </span>
+          <span className="text-xs text-muted-soft">
+            {date} {time}
+          </span>
+        </div>
+        <div>
+          {decryptedContent ? (
+            <ExpandableText text={decryptedContent} maxLength={300} />
+          ) : (
+            <p className="text-sm text-muted-soft">{t('common.loading')}</p>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-2 mt-2 pt-2 border-t border-hairline">
+          <button
+            onClick={handleCopy}
+            disabled={!decryptedContent}
+            className="text-xs px-2 py-1 rounded text-muted hover:text-ink hover:bg-canvas-soft transition-colors disabled:opacity-40"
+            type="button"
+          >
+            {t('chat.copy')}
+          </button>
+          {isOwnMessage && !isDestroying && (
+            <button
+              onClick={handleRecall}
+              className="text-xs px-2 py-1 rounded text-error hover:bg-error/10 transition-colors"
+              type="button"
+            >
+              {t('chat.recall')}
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </DestroyAnimation>
   );
 }

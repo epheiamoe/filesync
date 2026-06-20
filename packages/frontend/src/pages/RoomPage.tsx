@@ -25,6 +25,7 @@ import { ChatPage } from '@/components/chat/ChatPage';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { TransferPage } from '@/components/transfer/TransferPage';
 import { UploadProgress } from '@/components/transfer/UploadProgress';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
 
 // ---- Upload task tracking (same shape as UploadZone) ----
@@ -69,6 +70,8 @@ export function RoomPage() {
   const [sending, setSending] = useState(false);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [uploadIsPublic, setUploadIsPublic] = useState(false);
+  const [uploadTTLMinutes, setUploadTTLMinutes] = useState(10);
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -319,13 +322,14 @@ export function RoomPage() {
           const encryptedFilename = await encryptText(key, file.name);
 
           const chunkSize = file.size <= 100 * 1024 * 1024 ? CHUNK_SIZE_SMALL : CHUNK_SIZE_LARGE;
-          const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+          const expiresAt = new Date(Date.now() + uploadTTLMinutes * 60 * 1000).toISOString();
+          const visibility = uploadIsPublic ? 'public' : 'private';
           const initRes = await api.initUpload(
             file.name,
             encrypted.byteLength,
             chunkSize,
             currentRoom.id,
-            'private',
+            visibility,
             expiresAt,
           );
 
@@ -355,7 +359,7 @@ export function RoomPage() {
             encryptedFilename,
             encrypted.byteLength,
             file.type || 'application/octet-stream',
-            'private',
+            visibility,
             expiresAt,
             currentRoom.id,
           );
@@ -380,7 +384,7 @@ export function RoomPage() {
         }
       }
     },
-    [code, currentRoom],
+    [code, currentRoom, uploadTTLMinutes, uploadIsPublic],
   );
 
   // ---- File input ref for the shared input bar ----
@@ -559,17 +563,21 @@ export function RoomPage() {
         </div>
       </header>
 
-      {/* Content */}
+      {/* Content — both ChatPage and TransferPage always mounted.
+           Visibility controlled by CSS to avoid AnimatePresence unmounting
+           which caused message loss and decrypted content reset on tab switch. */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-4">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ x: activeTab === 'chat' ? -20 : 20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: activeTab === 'chat' ? 20 : -20, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+        <div className="relative">
+          {/* Chat tab */}
+          <div
+            className={
+              activeTab === 'chat'
+                ? 'block'
+                : 'hidden'
+            }
+            aria-hidden={activeTab !== 'chat'}
           >
-            {activeTab === 'chat' ? (
+            <ErrorBoundary>
               <ChatPage
                 roomId={currentRoom.id}
                 roomCode={code!}
@@ -578,7 +586,19 @@ export function RoomPage() {
                 decryptedMessages={decryptedMessages}
                 sessionToken={session?.token || ''}
               />
-            ) : (
+            </ErrorBoundary>
+          </div>
+
+          {/* Transfer tab */}
+          <div
+            className={
+              activeTab === 'transfer'
+                ? 'block'
+                : 'hidden'
+            }
+            aria-hidden={activeTab !== 'transfer'}
+          >
+            <ErrorBoundary>
               <TransferPage
                 roomId={currentRoom.id}
                 roomCode={code!}
@@ -586,9 +606,9 @@ export function RoomPage() {
                 messages={messages}
                 decryptedMessages={decryptedMessages}
               />
-            )}
-          </motion.div>
-        </AnimatePresence>
+            </ErrorBoundary>
+          </div>
+        </div>
       </main>
 
       {/* Shared Bottom Input Bar (BUG 2, 3, 4 fix) */}
@@ -607,6 +627,10 @@ export function RoomPage() {
             onSend={handleSend}
             onFileSelect={(files) => handleFileUpload(files)}
             disabled={sending}
+            uploadIsPublic={uploadIsPublic}
+            onUploadPublicChange={setUploadIsPublic}
+            uploadTTLMinutes={uploadTTLMinutes}
+            onUploadTTLChange={setUploadTTLMinutes}
           />
         </div>
 

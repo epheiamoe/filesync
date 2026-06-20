@@ -3,6 +3,7 @@
  *
  * Features:
  * - Paperclip button to open file picker (for both Chat and Transfer views)
+ * - Public file toggle + auto-destroy time selector (above textarea)
  * - Auto-resize (max 4 lines)
  * - Enter to send, Shift+Enter for newline
  * - Circular coral send button with pulse animation
@@ -16,9 +17,36 @@ interface ChatInputProps {
   onSend: (text: string) => void;
   onFileSelect?: (files: FileList) => void;
   disabled?: boolean;
+  /** Whether the file being uploaded should be public (unencrypted, shareable). */
+  uploadIsPublic?: boolean;
+  /** Callback when the public toggle changes. */
+  onUploadPublicChange?: (isPublic: boolean) => void;
+  /** Auto-destroy TTL in minutes (10, 30, 60, 360, 1440). */
+  uploadTTLMinutes?: number;
+  /** Callback when auto-destroy TTL changes. */
+  onUploadTTLChange?: (minutes: number) => void;
+  /** Whether to show upload settings (public toggle + auto-destroy selector). */
+  showUploadSettings?: boolean;
 }
 
-export function ChatInput({ onSend, onFileSelect, disabled }: ChatInputProps) {
+const TTL_OPTIONS = [
+  { value: 10, label: 'transfer.destroy10min' },
+  { value: 30, label: 'transfer.destroy30min' },
+  { value: 60, label: 'transfer.destroy1hr' },
+  { value: 360, label: 'transfer.destroy6hr' },
+  { value: 1440, label: 'transfer.destroy24hr' },
+];
+
+export function ChatInput({
+  onSend,
+  onFileSelect,
+  disabled,
+  uploadIsPublic = false,
+  onUploadPublicChange,
+  uploadTTLMinutes = 10,
+  onUploadTTLChange,
+  showUploadSettings = true,
+}: ChatInputProps) {
   const [text, setText] = useState('');
   const [pulse, setPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,7 +98,42 @@ export function ChatInput({ onSend, onFileSelect, disabled }: ChatInputProps) {
   const hasText = text.trim().length > 0;
 
   return (
-    <div className="flex items-end gap-2 bg-canvas border-t border-hairline pt-3 pb-safe">
+    <div className="bg-canvas border-t border-hairline pt-3 pb-safe">
+      {/* Upload settings: public toggle + auto-destroy selector */}
+      {onFileSelect && showUploadSettings && (
+        <div className="flex items-center gap-4 mb-2 px-1 flex-wrap">
+          {/* Public file toggle */}
+          <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={uploadIsPublic}
+              onChange={(e) => onUploadPublicChange?.(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-hairline text-primary focus:ring-primary/20"
+              aria-label={t('transfer.publicCheckbox')}
+            />
+            {t('transfer.publicCheckbox')}
+          </label>
+
+          {/* Auto-destroy selector */}
+          <label className="flex items-center gap-1.5 text-xs text-muted">
+            <span>{t('transfer.autoDestroy')}:</span>
+            <select
+              value={uploadTTLMinutes}
+              onChange={(e) => onUploadTTLChange?.(Number(e.target.value))}
+              className="text-xs border border-hairline rounded px-1.5 py-0.5 bg-canvas-card text-body"
+              aria-label={t('transfer.autoDestroy')}
+            >
+              {TTL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.label)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <div className="flex items-end gap-2">
       {/* File attach button — always visible for both Chat and Transfer */}
       {onFileSelect && (
         <>
@@ -164,6 +227,7 @@ export function ChatInput({ onSend, onFileSelect, disabled }: ChatInputProps) {
           <path d="M22 2L15 22L11 13L2 9L22 2Z" />
         </svg>
       </motion.button>
+      </div>
     </div>
   );
 }

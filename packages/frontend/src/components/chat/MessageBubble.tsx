@@ -18,6 +18,7 @@ import { useStore } from '@/lib/store';
 import { ExpandableText } from '@/components/ui/ExpandableText';
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu';
 import { BottomSheet } from '@/components/ui/BottomSheet';
+import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import type { MessageDTO } from '@/lib/store';
 
 interface MessageBubbleProps {
@@ -31,20 +32,38 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, decryptedContent, roomCode, isSelf = false }: MessageBubbleProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
+  const [isDestroying, setIsDestroying] = useState(false);
   const session = useStore((s) => s.session);
   const removeMessage = useStore((s) => s.removeMessage);
   const addToast = useStore((s) => s.addToast);
 
   const isRecalled = !!message.recalled_at;
+  const isOwnMessage = message.sender_session_id === session?.token;
+
+  const handleCopy = useCallback(async () => {
+    if (!decryptedContent) return;
+    try {
+      await navigator.clipboard.writeText(decryptedContent);
+      addToast({ type: 'success', message: t('chat.copied') });
+    } catch {
+      // Fallback for non-HTTPS or older browsers
+      addToast({ type: 'error', message: t('common.error') });
+    }
+  }, [decryptedContent, addToast]);
 
   const handleRecall = useCallback(async () => {
     try {
       await api.recallMessage(message.id, message.room_id);
-      removeMessage(message.id);
-      addToast({ type: 'info', message: t('chat.recalled') });
+      // Start destruction animation — onDestroyed will remove from store
+      setIsDestroying(true);
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     }
+  }, [message.id, message.room_id, addToast]);
+
+  const handleDestroyed = useCallback(() => {
+    removeMessage(message.id);
+    addToast({ type: 'info', message: t('chat.recalled') });
   }, [message.id, removeMessage, addToast]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -61,11 +80,20 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
 
   const menuItems: ContextMenuItem[] = [
     {
-      key: 'recall',
-      label: t('chat.recall'),
-      danger: true,
-      onClick: handleRecall,
+      key: 'copy',
+      label: t('chat.copy'),
+      onClick: handleCopy,
     },
+    ...(isOwnMessage && !isRecalled
+      ? [
+          {
+            key: 'recall' as const,
+            label: t('chat.recall'),
+            danger: true,
+            onClick: handleRecall,
+          },
+        ]
+      : []),
   ];
 
   const time = new Date(message.created_at).toLocaleTimeString([], {
@@ -75,60 +103,62 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
 
   return (
     <>
-      <motion.div
-        variants={{
-          hidden: { opacity: 0, y: 20, scale: 0.97 },
-          visible: {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            transition: { type: 'spring', stiffness: 300, damping: 30 },
-          },
-        }}
-        exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-        onContextMenu={handleContextMenu}
-        onTouchStart={() => {
-          // Long press handling — start a timer
-          const timer = setTimeout(() => handleLongPress(), 500);
-          const cancel = () => clearTimeout(timer);
-          document.addEventListener('touchend', cancel, { once: true });
-          document.addEventListener('touchmove', cancel, { once: true });
-        }}
-        className={`group flex flex-col gap-0.5 ${isRecalled ? 'opacity-60' : ''} ${isSelf ? 'items-end' : 'items-start'}`}
-      >
-        {/* Device label */}
-        {message.device_label && (
-          <span className="text-[11px] text-muted-soft px-1">
-            {message.device_label}
-          </span>
-        )}
-
-        {/* Bubble */}
-        <div
-          className={`
-            max-w-[85%] sm:max-w-[70%] rounded-lg px-3.5 py-2.5
-            ${isRecalled
-              ? 'bg-canvas-card italic text-muted'
-              : isSelf
-                ? 'bg-primary/10 text-body'
-                : 'bg-canvas-card text-body'
-            }
-          `.trim().replace(/\s+/g, ' ')}
+      <DestroyAnimation isDestroying={isDestroying} onDestroyed={handleDestroyed}>
+        <motion.div
+          variants={{
+            hidden: { opacity: 0, y: 20, scale: 0.97 },
+            visible: {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              transition: { type: 'spring', stiffness: 300, damping: 30 },
+            },
+          }}
+          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+          onContextMenu={handleContextMenu}
+          onTouchStart={() => {
+            // Long press handling — start a timer
+            const timer = setTimeout(() => handleLongPress(), 500);
+            const cancel = () => clearTimeout(timer);
+            document.addEventListener('touchend', cancel, { once: true });
+            document.addEventListener('touchmove', cancel, { once: true });
+          }}
+          className={`group flex flex-col gap-0.5 ${isRecalled || isDestroying ? 'opacity-60' : ''} ${isSelf ? 'items-end' : 'items-start'}`}
         >
-          {isRecalled ? (
-            <p className="text-sm italic">{t('chat.recalled')}</p>
-          ) : decryptedContent ? (
-            <ExpandableText text={decryptedContent} maxLength={300} />
-          ) : (
-            <p className="text-sm text-muted-soft animate-pulse-soft">
-              {t('common.loading')}
-            </p>
+          {/* Device label */}
+          {message.device_label && (
+            <span className="text-[11px] text-muted-soft px-1">
+              {message.device_label}
+            </span>
           )}
-        </div>
 
-        {/* Timestamp */}
-        <span className="text-[10px] text-muted-soft px-1">{time}</span>
-      </motion.div>
+          {/* Bubble */}
+          <div
+            className={`
+              max-w-[85%] sm:max-w-[70%] rounded-lg px-3.5 py-2.5
+              ${isRecalled
+                ? 'bg-canvas-card italic text-muted'
+                : isSelf
+                  ? 'bg-primary/10 text-body'
+                  : 'bg-canvas-card text-body'
+              }
+            `.trim().replace(/\s+/g, ' ')}
+          >
+            {isRecalled ? (
+              <p className="text-sm italic">{t('chat.recalled')}</p>
+            ) : decryptedContent ? (
+              <ExpandableText text={decryptedContent} maxLength={300} />
+            ) : (
+              <p className="text-sm text-muted-soft animate-pulse-soft">
+                {t('common.loading')}
+              </p>
+            )}
+          </div>
+
+          {/* Timestamp */}
+          <span className="text-[10px] text-muted-soft px-1">{time}</span>
+        </motion.div>
+      </DestroyAnimation>
 
       {/* Desktop context menu */}
       <ContextMenu

@@ -51,6 +51,8 @@ const translations: Translations = {
   'rooms.title': { 'zh-CN': '房间', 'en-US': 'Rooms' },
   'rooms.create': { 'zh-CN': '创建新房间', 'en-US': 'Create Room' },
   'rooms.join': { 'zh-CN': '加入房间', 'en-US': 'Join Room' },
+  'rooms.delete': { 'zh-CN': '删除', 'en-US': 'Delete' },
+  'rooms.deleteConfirm': { 'zh-CN': '确认删除此房间？所有消息和文件将被永久删除。', 'en-US': 'Delete this room? All messages and files will be permanently deleted.' },
   'rooms.roomCode': { 'zh-CN': '房间码', 'en-US': 'Room Code' },
   'rooms.roomCodePlaceholder': { 'zh-CN': '4位房间码', 'en-US': '4-digit code' },
   'rooms.customCode': { 'zh-CN': '自定义房间码（可选）', 'en-US': 'Custom code (optional)' },
@@ -84,6 +86,12 @@ const translations: Translations = {
   'chat.loadMore': { 'zh-CN': '加载更多', 'en-US': 'Load more' },
   'chat.noMessages': { 'zh-CN': '暂无消息，发送第一条吧', 'en-US': 'No messages yet, send one' },
   'chat.attachFile': { 'zh-CN': '附加文件', 'en-US': 'Attach file' },
+  'chat.copy': { 'zh-CN': '复制', 'en-US': 'Copy' },
+  'chat.copied': { 'zh-CN': '已复制', 'en-US': 'Copied' },
+  'chat.openFile': { 'zh-CN': '打开', 'en-US': 'Open' },
+  'chat.downloadFile': { 'zh-CN': '下载', 'en-US': 'Download' },
+  'chat.copyLink': { 'zh-CN': '复制链接', 'en-US': 'Copy Link' },
+  'chat.linkCopied': { 'zh-CN': '链接已复制', 'en-US': 'Link copied' },
 
   // ---- Transfer ----
   'transfer.title': { 'zh-CN': '传输', 'en-US': 'Transfer' },
@@ -109,6 +117,15 @@ const translations: Translations = {
   'transfer.sizeUnknown': { 'zh-CN': '未知大小', 'en-US': 'Unknown size' },
   'transfer.noTexts': { 'zh-CN': '暂无文本', 'en-US': 'No texts' },
   'transfer.noFiles': { 'zh-CN': '暂无文件', 'en-US': 'No files' },
+  'transfer.view': { 'zh-CN': '查看', 'en-US': 'View' },
+  'transfer.recall': { 'zh-CN': '撤回', 'en-US': 'Recall' },
+  'transfer.publicCheckbox': { 'zh-CN': '公开（不加密，可分享）', 'en-US': 'Public (unencrypted, shareable)' },
+  'transfer.autoDestroy': { 'zh-CN': '自动销毁', 'en-US': 'Auto-destroy' },
+  'transfer.destroy10min': { 'zh-CN': '10 分钟', 'en-US': '10 min' },
+  'transfer.destroy30min': { 'zh-CN': '30 分钟', 'en-US': '30 min' },
+  'transfer.destroy1hr': { 'zh-CN': '1 小时', 'en-US': '1 hour' },
+  'transfer.destroy6hr': { 'zh-CN': '6 小时', 'en-US': '6 hours' },
+  'transfer.destroy24hr': { 'zh-CN': '24 小时', 'en-US': '24 hours' },
 
   // ---- Admin ----
   'admin.title': { 'zh-CN': '管理面板', 'en-US': 'Admin Panel' },
@@ -136,12 +153,18 @@ const translations: Translations = {
   'admin.newPassword': { 'zh-CN': '新密码（至少8位）', 'en-US': 'New password (min 8 chars)' },
   'admin.pwTooShort': { 'zh-CN': '新密码至少需要8个字符', 'en-US': 'New password must be at least 8 characters' },
   'admin.pwChanged': { 'zh-CN': '密码已修改成功', 'en-US': 'Password changed successfully' },
+  'admin.deleteAll': { 'zh-CN': '删除全部房间', 'en-US': 'Delete All Rooms' },
+  'admin.deleteAllConfirm': { 'zh-CN': '确认删除全部房间？此操作不可撤销。', 'en-US': 'Delete ALL rooms? This cannot be undone.' },
 
   // ---- E2EE ----
   'e2ee.keyGenerated': { 'zh-CN': '密钥已生成', 'en-US': 'Key Generated' },
   'e2ee.saveKey': { 'zh-CN': '请妥善保管此密钥，它无法恢复', 'en-US': 'Please save this key, it cannot be recovered' },
   'e2ee.decryptError': { 'zh-CN': '解密失败', 'en-US': 'Decryption failed' },
   'e2ee.encryptError': { 'zh-CN': '加密失败', 'en-US': 'Encryption failed' },
+
+  // ---- Error ----
+  'error.somethingWrong': { 'zh-CN': '出了点问题', 'en-US': 'Something went wrong' },
+  'error.retry': { 'zh-CN': '重试', 'en-US': 'Retry' },
 
   // ---- Logout ----
   'logout.button': { 'zh-CN': '退出登录', 'en-US': 'Logout' },

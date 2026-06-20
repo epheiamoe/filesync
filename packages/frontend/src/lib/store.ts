@@ -83,6 +83,8 @@ export interface AppState {
   addFile: (file: FileMetaDTO) => void;
   setFiles: (files: FileMetaDTO[]) => void;
   removeFile: (id: string) => void;
+  /** Remove a file from the list — same as removeFile, named for recall UX. */
+  recallFile: (id: string) => void;
   setOnlineMembers: (members: OnlineMember[]) => void;
   setDeviceLabel: (label: string) => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
@@ -204,6 +206,12 @@ export const useStore = create<AppState>((set) => ({
   },
 
   removeFile: (id) => {
+    set((state) => ({
+      files: state.files.filter((f) => f.id !== id),
+    }));
+  },
+
+  recallFile: (id) => {
     set((state) => ({
       files: state.files.filter((f) => f.id !== id),
     }));
