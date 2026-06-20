@@ -516,12 +516,16 @@ export async function handleUploadComplete(c: Context<AppContext>): Promise<Resp
     const fileSharedEvent = {
       type: 'file_shared' as const,
       payload: {
-        file_id: fileId,
+        id: fileId,
+        room_id,
+        uploader_session_id: sessionToken,
         encrypted_filename,
+        encrypted_meta: encrypted_meta || '',
         file_size,
         mime_type,
         visibility,
         expires_at,
+        created_at: now,
       },
       sender_session_id: sessionToken,
       device_label: deviceLabel,

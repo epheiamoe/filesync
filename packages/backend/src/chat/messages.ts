@@ -123,9 +123,12 @@ export async function handleSendMessage(c: Context<AppContext>): Promise<Respons
     const broadcastEvent = {
       type: 'chat' as const,
       payload: {
-        message_id: messageId,
+        id: messageId,
+        room_id,
         encrypted_content,
         message_type,
+        sender_session_id: sessionToken,
+        created_at: now,
       },
       sender_session_id: sessionToken,
       device_label: finalDeviceLabel,
@@ -352,7 +355,7 @@ export async function handleRecallMessage(c: Context<AppContext>): Promise<Respo
 
     const recallEvent = {
       type: 'recall' as const,
-      payload: { message_id: messageId },
+      payload: { id: messageId, message_id: messageId },
       sender_session_id: sessionToken,
       device_label: '',
       timestamp: new Date().toISOString(),

@@ -193,16 +193,22 @@ export function RoomPage() {
         case 'chat': {
           const msg = event.payload as MessageDTO;
           // Deduplication is handled by store.addMessage (idempotent by ID)
+          // If room_id is missing from broadcast, inject from current room context
+          if (!msg.room_id) msg.room_id = currentRoom?.id || '';
           addMessage(msg);
           break;
         }
         case 'recall': {
-          const payload = event.payload as { message_id: string };
-          removeMessage(payload.message_id);
+          const payload = event.payload as { message_id?: string; id?: string };
+          // Support both old (message_id) and new (id) field names for recall
+          const targetId = payload.message_id || payload.id || '';
+          if (targetId) removeMessage(targetId);
           break;
         }
         case 'file_shared': {
           const file = event.payload as unknown as FileMetaDTO;
+          // If room_id is missing from broadcast, inject from current room context
+          if (!file.room_id) file.room_id = currentRoom?.id || '';
           addFile(file);
           break;
         }

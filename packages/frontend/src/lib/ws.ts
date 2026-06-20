@@ -164,28 +164,84 @@ export class RoomSocket {
   }
 
   private handleServerMessage(raw: Record<string, unknown>): void {
-    // Server sends { type, payload, sender_session_id, device_label, timestamp }
-    // NOT { event, data } — fixing protocol mismatch (Bug 1C)
+    // Broadcast format: { type, payload, sender_session_id, device_label, timestamp }
+    // These top-level fields are OUTSIDE payload — extract from raw, not from payload.
     const event = (raw.type as string) || (raw.event as string); // support both for backward compat
-    const payload = (raw.payload as Record<string, unknown>) || (raw.data as Record<string, unknown>) || {};
+    const rawPayload = (raw.payload as Record<string, unknown>) || (raw.data as Record<string, unknown>) || {};
+
+    // Extract top-level broadcast fields (NOT from payload)
+    const senderSessionId = (raw.sender_session_id as string) || '';
+    const deviceLabel = (raw.device_label as string) || '';
+    const timestamp = (raw.timestamp as string) || new Date().toISOString();
 
     switch (event) {
       case 'message':
-      case 'recall':
+      case 'chat': {
+        // Normalize payload: map backend field names → DTO-compatible field names.
+        // Supports BOTH old names (message_id) and new names (id) for backward compat.
+        const normalizedPayload: Record<string, unknown> = {
+          id: rawPayload.id || rawPayload.message_id,
+          room_id: rawPayload.room_id || '',
+          sender_session_id: rawPayload.sender_session_id || senderSessionId,
+          encrypted_content: rawPayload.encrypted_content,
+          message_type: rawPayload.message_type || 'text',
+          device_label: rawPayload.device_label || deviceLabel,
+          created_at: rawPayload.created_at || timestamp,
+        };
+        const wsMsg: WsMessage = {
+          type: 'chat',
+          payload: normalizedPayload,
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
       case 'file_shared':
       case 'file_recalled': {
+        // Normalize payload: map backend field names → DTO-compatible field names.
+        // Supports BOTH old names (file_id) and new names (id) for backward compat.
+        const normalizedPayload: Record<string, unknown> = {
+          id: rawPayload.id || rawPayload.file_id,
+          room_id: rawPayload.room_id || '',
+          uploader_session_id: rawPayload.uploader_session_id || senderSessionId,
+          encrypted_filename: rawPayload.encrypted_filename,
+          encrypted_meta: rawPayload.encrypted_meta || '',
+          file_size: rawPayload.file_size,
+          mime_type: rawPayload.mime_type,
+          visibility: rawPayload.visibility,
+          expires_at: rawPayload.expires_at,
+          created_at: rawPayload.created_at || timestamp,
+        };
         const wsMsg: WsMessage = {
-          type: event === 'file_recalled' ? 'file_shared' : (event as WsMessage['type']),
-          payload: payload ?? {},
-          sender_session_id: (payload?.sender_session_id as string) || '',
-          device_label: (payload?.device_label as string) || '',
-          timestamp: (payload?.created_at as string) || new Date().toISOString(),
+          type: 'file_shared',
+          payload: normalizedPayload,
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
+      case 'recall': {
+        // Normalize recall payload — keep message_id for backward compat with RoomPage
+        const normalizedPayload: Record<string, unknown> = {
+          message_id: rawPayload.message_id || rawPayload.id,
+          ...rawPayload,
+        };
+        const wsMsg: WsMessage = {
+          type: 'recall',
+          payload: normalizedPayload,
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
         };
         this.messageHandlers.forEach((h) => h(wsMsg));
         break;
       }
       case 'presence': {
-        const members = (payload?.members as OnlineMember[]) || [];
+        const members = (rawPayload?.members as OnlineMember[]) || [];
         this.memberHandlers.forEach((h) => h(members));
         break;
       }
