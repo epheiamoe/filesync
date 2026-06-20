@@ -1,0 +1,27 @@
+{
+  "name": "@epheia-files/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend Worker for epheia-files — auth, rooms, files, chat",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@epheia-files/shared": "workspace:*",
+    "hono": "^4.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "@cloudflare/workers-types": "^4.20250601.0",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.0",
+    "wrangler": "^3.99.0"
+  }
+}

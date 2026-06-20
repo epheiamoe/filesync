@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.cache/
+.env
+.env.local
+.wrangler/
+.swarm/
+out-of-date/
+*.log
+.DS_Store
+Thumbs.db

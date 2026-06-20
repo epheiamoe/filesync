@@ -1,0 +1,16 @@
+{
+  "name": "epheia-files",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Serverless file sync + ephemeral chat tool on Cloudflare Workers",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @epheia-files/backend dev",
+    "deploy": "pnpm --filter @epheia-files/backend deploy",
+    "test": "pnpm --filter @epheia-files/backend test",
+    "lint": "pnpm -r lint"
+  }
+}
