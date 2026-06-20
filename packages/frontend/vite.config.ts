@@ -10,7 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'epheia-files',
+        name: 'filesync',
         short_name: 'Files',
         description: 'Secure ephemeral file sharing & chat',
         theme_color: '#faf9f5',

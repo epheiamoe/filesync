@@ -24,7 +24,7 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
-import type { BroadcastEvent, OnlineMember } from '@epheia-files/shared';
+import type { BroadcastEvent, OnlineMember } from '@filesync/shared';
 
 /** Tag prefix conventions */
 const TAG_ROOM = 'room:';

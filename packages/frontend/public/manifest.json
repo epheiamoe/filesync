@@ -1,5 +1,5 @@
 {
-  "name": "epheia-files",
+  "name": "filesync",
   "short_name": "Files",
   "description": "Secure ephemeral file sharing & chat",
   "start_url": "/",

@@ -1,5 +1,5 @@
 {
-  "name": "epheia-files",
+  "name": "filesync",
   "version": "0.1.0",
   "private": true,
   "description": "Serverless file sync + ephemeral chat tool on Cloudflare Workers",
@@ -8,11 +8,11 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @epheia-files/backend dev",
+    "dev": "pnpm --filter @filesync/backend dev",
     "dev:frontend": "cd packages/frontend && npm run dev",
     "build:frontend": "cd packages/frontend && npm run build",
-    "deploy": "pnpm --filter @epheia-files/backend deploy",
-    "test": "pnpm --filter @epheia-files/backend test",
+    "deploy": "pnpm --filter @filesync/backend deploy",
+    "test": "pnpm --filter @filesync/backend test",
     "lint": "pnpm -r lint"
   }
 }

@@ -1,8 +1,8 @@
 {
-  "name": "@epheia-files/backend",
+  "name": "@filesync/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend Worker for epheia-files — auth, rooms, files, chat",
+  "description": "Backend Worker for filesync — auth, rooms, files, chat",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@epheia-files/shared": "workspace:*",
+    "@filesync/shared": "workspace:*",
     "hono": "^4.6.0",
     "zod": "^3.23.0"
   },

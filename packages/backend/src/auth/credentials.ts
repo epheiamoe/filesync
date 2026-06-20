@@ -18,7 +18,7 @@ import type { AppContext } from '../types';
 import { generateTempCode, generateApiKey, generateId } from '../utils/id';
 import { sha256 } from '../crypto/hash';
 import { hasScope } from './session';
-import type { SessionData } from '@epheia-files/shared';
+import type { SessionData } from '@filesync/shared';
 
 // ---- Helper: extract session from context ----
 function getSession(c: Context<AppContext>): SessionData | null {

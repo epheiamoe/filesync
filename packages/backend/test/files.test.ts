@@ -6,7 +6,7 @@
  *
  * NOTE: R2 API calls are mocked or skipped. Full R2 integration testing
  * requires the bucket to be enabled in the Cloudflare Dashboard.
- * See .swarm/2026-06-21_epheia-files/impl-2.md for R2 status.
+ * See .swarm/2026-06-21_filesync/impl-2.md for R2 status.
  */
 
 import { describe, it, expect } from 'vitest';

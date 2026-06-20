@@ -12,3 +12,5 @@ out-of-date/
 Thumbs.db
 .playwright-mcp/
 *.png
+AGENTS.local.md
+packages/backend/wrangler.jsonc

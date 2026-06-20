@@ -1,2 +1,2 @@
-// @epheia-files/shared — re-exports
+// @filesync/shared — re-exports
 export * from './types';

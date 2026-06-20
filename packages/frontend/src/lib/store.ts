@@ -1,5 +1,5 @@
 /**
- * epheia-files State Management — Zustand store.
+ * filesync State Management — Zustand store.
  *
  * Centralized state for auth, current room, messages, files,
  * online members, and device label.

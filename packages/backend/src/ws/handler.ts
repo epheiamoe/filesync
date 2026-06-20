@@ -21,7 +21,7 @@
 import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { WsTicketResponse } from '@epheia-files/shared';
+import type { WsTicketResponse } from '@filesync/shared';
 import { generateId } from '../utils/id';
 
 // Ticket TTL: 60 seconds

@@ -1,6 +1,6 @@
-# epheia-files API 文档
+# filesync API 文档
 
-> Base URL: `https://epheia-files-api.epheia.workers.dev`
+> Base URL: `<YOUR_WORKER_URL>`（示例: `https://filesync-api.<subdomain>.workers.dev`）
 
 ## 认证
 

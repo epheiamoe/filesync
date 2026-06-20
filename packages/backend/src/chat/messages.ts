@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { MessageDTO, ChatMessagesResponse } from '@epheia-files/shared';
+import type { MessageDTO, ChatMessagesResponse } from '@filesync/shared';
 import { generateId } from '../utils/id';
 
 // ---- Validation Schemas ----
@@ -374,4 +374,4 @@ export async function handleRecallMessage(c: Context<AppContext>): Promise<Respo
 }
 
 // Re-export for type usage elsewhere
-export type { MessageDTO, ChatMessagesResponse } from '@epheia-files/shared';
+export type { MessageDTO, ChatMessagesResponse } from '@filesync/shared';

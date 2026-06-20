@@ -10,7 +10,7 @@ importers:
 
   packages/backend:
     dependencies:
-      '@epheia-files/shared':
+      '@filesync/shared':
         specifier: workspace:*
         version: link:../shared
       hono:

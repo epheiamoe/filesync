@@ -1,5 +1,5 @@
 /**
- * epheia-files i18n — Simple translation system.
+ * filesync i18n — Simple translation system.
  *
  * All user-facing strings go through t(key) to enable future multi-language support.
  * Default language: zh-CN. Fallback: en-US.

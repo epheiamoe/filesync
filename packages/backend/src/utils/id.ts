@@ -1,5 +1,5 @@
 /**
- * ID generation utilities for epheia-files.
+ * ID generation utilities for filesync.
  * All IDs use crypto.randomUUID() for randomness with no external dependencies.
  * @module utils/id
  */

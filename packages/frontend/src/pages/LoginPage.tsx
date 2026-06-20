@@ -100,7 +100,7 @@ export function LoginPage() {
 
         <Card padding="xl" className="max-w-md">
           <h1 className="text-display-md font-display text-ink text-center mb-2">
-            epheia-files
+            filesync
           </h1>
           <p className="text-sm text-muted text-center mb-8">
             {t('login.subtitle')}

@@ -9,7 +9,7 @@
  * Room R2 limit: 5GB per room. On overflow, oldest files are deleted.
  * Files expire automatically based on expires_at; lazy cleanup on init.
  *
- * NOTE: R2 bucket "epheia-files" must be manually enabled in Cloudflare Dashboard.
+ * NOTE: R2 bucket "filesync" must be manually enabled in Cloudflare Dashboard.
  *       Until then, R2 API calls will fail at runtime.
  *
  * @module files/upload
@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { UploadInitResponse } from '@epheia-files/shared';
+import type { UploadInitResponse } from '@filesync/shared';
 import { generateId } from '../utils/id';
 
 // ---- Constants ----

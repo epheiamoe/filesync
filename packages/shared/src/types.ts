@@ -1,5 +1,5 @@
 // ============================================================
-// @epheia-files/shared — All shared TypeScript types
+// @filesync/shared — All shared TypeScript types
 // Used by both backend and frontend packages.
 // Changes to this file require orchestrator approval per plan.md.
 // ============================================================

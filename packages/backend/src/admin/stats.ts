@@ -11,7 +11,7 @@
 
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { AdminStats, AdminRoomRow } from '@epheia-files/shared';
+import type { AdminStats, AdminRoomRow } from '@filesync/shared';
 
 // ---- Helper: Require Admin Scope ----
 

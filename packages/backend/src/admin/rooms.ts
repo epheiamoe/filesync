@@ -19,7 +19,7 @@
 
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import type { DestroyRoomResponse, DestroyAllRoomsResponse } from '@epheia-files/shared';
+import type { DestroyRoomResponse, DestroyAllRoomsResponse } from '@filesync/shared';
 
 /**
  * Destroy a room: cascade delete all associated data.

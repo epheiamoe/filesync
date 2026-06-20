@@ -6,11 +6,11 @@
  *
  * NOTE: Full DO WebSocket testing requires a deployed Cloudflare Worker.
  * These tests validate the algorithm logic and data transformations.
- * See .swarm/2026-06-21_epheia-files/impl-2.md for limitations.
+ * See .swarm/2026-06-21_filesync/impl-2.md for limitations.
  */
 
 import { describe, it, expect } from 'vitest';
-import type { BroadcastEvent, OnlineMember, WsMessage } from '@epheia-files/shared';
+import type { BroadcastEvent, OnlineMember, WsMessage } from '@filesync/shared';
 
 // ---- Helper: Extract tag value (mirrors RoomDO.extractTag) ----
 

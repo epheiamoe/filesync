@@ -1,5 +1,5 @@
 /**
- * epheia-files WebSocket Client — Room real-time connection.
+ * filesync WebSocket Client — Room real-time connection.
  *
  * Handles WebSocket connection lifecycle for a specific room:
  * - Requests a WS ticket from the API
@@ -19,7 +19,7 @@ export type ConnectionHandler = (connected: boolean) => void;
 
 const WS_BASE = import.meta.env.DEV
   ? 'ws://localhost:8787'
-  : 'wss://epheia-files-api.epheia.workers.dev';
+  : 'wss://filesync-api.epheia.workers.dev';
 
 export class RoomSocket {
   private ws: WebSocket | null = null;

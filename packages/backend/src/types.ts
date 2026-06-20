@@ -3,7 +3,7 @@
  * Shared across all route handlers to ensure consistent typing.
  */
 
-import type { SessionData } from '@epheia-files/shared';
+import type { SessionData } from '@filesync/shared';
 
 /** Cloudflare Workers bindings available in the environment */
 export interface Bindings {
@@ -19,7 +19,7 @@ export interface Variables {
   sessionToken: string;
 }
 
-/** Full Hono context type for epheia-files API */
+/** Full Hono context type for filesync API */
 export type AppContext = {
   Bindings: Bindings;
   Variables: Variables;

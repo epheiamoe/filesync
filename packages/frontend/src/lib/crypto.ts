@@ -1,5 +1,5 @@
 /**
- * epheia-files E2EE Crypto — Client-side encryption using Web Crypto API.
+ * filesync E2EE Crypto — Client-side encryption using Web Crypto API.
  *
  * Features:
  * - Generate 32-byte random room key

@@ -1,5 +1,5 @@
 /**
- * Session management for epheia-files.
+ * Session management for filesync.
  *
  * Session tokens are stored in KV with TTL-based expiry:
  *   Key:   session:{token}
@@ -15,7 +15,7 @@
  * @module auth/session
  */
 
-import type { SessionData } from '@epheia-files/shared';
+import type { SessionData } from '@filesync/shared';
 
 /** TTL in seconds for each account type */
 const SESSION_TTL: Record<string, number> = {

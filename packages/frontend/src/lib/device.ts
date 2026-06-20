@@ -1,5 +1,5 @@
 /**
- * epheia-files Device Label — Parse User-Agent to a human-readable label.
+ * filesync Device Label — Parse User-Agent to a human-readable label.
  *
  * Rules (from architecture.md):
  * 1. Extract OS: Windows / Mac / Linux / iPhone / iPad / Android / Unknown

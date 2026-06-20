@@ -185,7 +185,7 @@ export function RoomListPage() {
       {/* Header */}
       <header className="sticky top-0 z-10 bg-canvas/80 backdrop-blur-sm border-b border-hairline">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-display-sm font-display text-ink">epheia-files</h1>
+          <h1 className="text-display-sm font-display text-ink">filesync</h1>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted">{session?.accountType}</span>
             {isAdmin && (

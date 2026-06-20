@@ -1,5 +1,5 @@
 /**
- * epheia-files API Worker — Main entry point.
+ * filesync API Worker — Main entry point.
  *
  * Hono app with:
  *   - CORS middleware (allow all origins for dev)
@@ -46,7 +46,7 @@ const app = new Hono<AppContext>();
 
 // ---- CORS Middleware ----
 app.use('*', cors({
-  origin: (origin) => origin || 'https://epheia-files.pages.dev',
+  origin: (origin) => origin || '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
