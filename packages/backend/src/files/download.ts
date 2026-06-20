@@ -2,6 +2,8 @@
  * File download proxy handlers.
  *
  * GET /api/files/:id/download  — Stream file from R2 with auth + expiry checks
+ * GET /api/files/:id/raw       — Stream file with Content-Disposition: inline (browser rendering)
+ * GET /api/files/:id/public    — Public file access without authentication
  * GET /api/files/:id/info      — Return file metadata without streaming
  * GET /api/files/room/:roomId  — List files in a room (paginated)
  * DELETE /api/files/:id        — Recall (delete) a file
@@ -11,8 +13,9 @@
  *   - Expiry checks (expired files return 410)
  *   - Recall checks (recalled files return 410)
  *
- * All files are stored encrypted in R2. The server does NOT decrypt.
- * Response includes X-File-Encrypted: true header so clients know to decrypt.
+ * Private files are stored encrypted in R2. The server does NOT decrypt.
+ * Public files are stored unencrypted. Response includes X-File-Encrypted header
+ * only for encrypted files so clients know whether to decrypt.
  *
  * @module files/download
  */
@@ -147,13 +150,17 @@ export async function handleFileDownload(c: Context<AppContext>): Promise<Respon
     // Determine Content-Disposition: use attachment for non-browser-viewable types
     const browserViewableTypes = ['image/', 'video/', 'audio/', 'text/', 'application/pdf'];
     const isBrowserViewable = browserViewableTypes.some((t) => file.mime_type.startsWith(t));
+    const isPublic = file.visibility === 'public';
 
     const headers = new Headers();
     headers.set('Content-Type', file.mime_type);
     headers.set('Content-Disposition', isBrowserViewable ? 'inline' : 'attachment');
-    headers.set('X-File-Encrypted', 'true');
+    // Only set X-File-Encrypted for private (encrypted) files
+    if (!isPublic) {
+      headers.set('X-File-Encrypted', 'true');
+    }
     headers.set('X-File-Id', fileId);
-    headers.set('Cache-Control', 'private, max-age=60');
+    headers.set('Cache-Control', isPublic ? 'public, max-age=60' : 'private, max-age=60');
 
     if (r2Object.size) {
       headers.set('Content-Length', r2Object.size.toString());
@@ -259,6 +266,8 @@ export async function handleFileInfo(c: Context<AppContext>): Promise<Response> 
     }
   }
 
+  const isPublic = file.visibility === 'public';
+
   const fileMeta: FileMetaDTO = {
     id: file.id,
     room_id: file.room_id,
@@ -268,6 +277,7 @@ export async function handleFileInfo(c: Context<AppContext>): Promise<Response> 
     file_size: file.file_size,
     mime_type: file.mime_type,
     visibility: file.visibility as FileMetaDTO['visibility'],
+    encrypted: !isPublic, // public files are unencrypted, private files are encrypted
     expires_at: file.expires_at,
     recalled_at: file.recalled_at || undefined,
     created_at: file.created_at,
@@ -389,6 +399,7 @@ export async function handleRoomFilesList(c: Context<AppContext>): Promise<Respo
     file_size: f.file_size,
     mime_type: f.mime_type,
     visibility: f.visibility as FileMetaDTO['visibility'],
+    encrypted: f.visibility !== 'public', // public files are unencrypted, private files are encrypted
     expires_at: f.expires_at,
     recalled_at: f.recalled_at || undefined,
     created_at: f.created_at,
@@ -519,4 +530,274 @@ export async function handleFileRecall(c: Context<AppContext>): Promise<Response
     { success: true, data: { success: true } },
     200
   );
+}
+
+// ---- GET /api/files/:id/raw ----
+
+/**
+ * Stream a file with Content-Disposition: inline for browser rendering.
+ *
+ * Unlike the /download endpoint which triggers a download, this endpoint
+ * is designed for inline display (images, text, PDFs in the browser).
+ *
+ * Same auth checks as download: private files require room membership.
+ * Public (unencrypted) files do NOT include the X-File-Encrypted header.
+ */
+export async function handleRawFile(c: Context<AppContext>): Promise<Response> {
+  const fileId = c.req.param('id');
+
+  if (!fileId) {
+    return c.json(
+      { success: false, error: 'File ID required', code: 'VALIDATION_ERROR' },
+      400
+    );
+  }
+
+  // Look up file in D1
+  const file = await c.env.DB.prepare(
+    `SELECT f.id, f.room_id, f.r2_key, f.encrypted_filename, f.file_size, f.mime_type,
+            f.visibility, f.expires_at, f.recalled_at, f.created_at,
+            r.room_code
+     FROM file_metadata f
+     JOIN rooms r ON r.id = f.room_id
+     WHERE f.id = ?`
+  ).bind(fileId).first<{
+    id: string;
+    room_id: string;
+    r2_key: string;
+    encrypted_filename: string;
+    file_size: number;
+    mime_type: string;
+    visibility: string;
+    expires_at: string;
+    recalled_at: string | null;
+    created_at: string;
+    room_code: string;
+  }>();
+
+  if (!file) {
+    return c.json(
+      { success: false, error: 'File not found', code: 'NOT_FOUND' },
+      404
+    );
+  }
+
+  // Check if recalled
+  if (file.recalled_at) {
+    return c.json(
+      { success: false, error: 'File has been recalled', code: 'FILE_EXPIRED' },
+      410
+    );
+  }
+
+  // Check if expired
+  if (new Date(file.expires_at) < new Date()) {
+    // Lazy cleanup: delete from R2 and mark as recalled
+    try {
+      await c.env.FILES.delete(file.r2_key);
+      await c.env.DB.prepare(
+        'UPDATE file_metadata SET recalled_at = ? WHERE id = ?'
+      ).bind(new Date().toISOString(), fileId).run();
+    } catch {
+      // Best-effort cleanup
+    }
+    return c.json(
+      { success: false, error: 'File has expired', code: 'FILE_EXPIRED' },
+      410
+    );
+  }
+
+  // Auth check for private files
+  const isPublic = file.visibility === 'public';
+
+  if (!isPublic) {
+    const sessionToken = c.get('sessionToken') || '';
+    const session = c.get('session');
+
+    if (!session) {
+      return c.json(
+        { success: false, error: 'Authentication required for private files', code: 'UNAUTHORIZED' },
+        401
+      );
+    }
+
+    // Verify room membership
+    const membership = await c.env.DB.prepare(
+      'SELECT id FROM room_members WHERE room_id = ? AND session_id = ?'
+    ).bind(file.room_id, sessionToken).first();
+
+    if (!membership) {
+      return c.json(
+        { success: false, error: 'You are not a member of this file\'s room', code: 'FORBIDDEN' },
+        403
+      );
+    }
+  }
+
+  // Stream file from R2
+  try {
+    const r2Object = await c.env.FILES.get(file.r2_key);
+
+    if (!r2Object) {
+      return c.json(
+        { success: false, error: 'File data not found in storage', code: 'NOT_FOUND' },
+        404
+      );
+    }
+
+    const headers = new Headers();
+    headers.set('Content-Type', file.mime_type);
+    // Always use inline for the raw endpoint (browser rendering)
+    headers.set('Content-Disposition', 'inline');
+    // Only set X-File-Encrypted for private (encrypted) files
+    if (!isPublic) {
+      headers.set('X-File-Encrypted', 'true');
+    }
+    headers.set('X-File-Id', fileId);
+    headers.set('Cache-Control', 'private, max-age=60');
+
+    if (r2Object.size) {
+      headers.set('Content-Length', r2Object.size.toString());
+    }
+
+    // Use writeHttpMetadata to preserve R2-stored metadata
+    r2Object.writeHttpMetadata(headers);
+
+    return new Response(r2Object.body, {
+      status: 200,
+      headers,
+    });
+  } catch (err) {
+    console.error('R2 get failed (raw):', err);
+    // [Debt: structured logging]
+    return c.json(
+      { success: false, error: 'Storage temporarily unavailable', code: 'SERVICE_UNAVAILABLE' },
+      503
+    );
+  }
+}
+
+// ---- GET /api/files/:id/public ----
+
+/**
+ * Public file access endpoint — NO authentication required.
+ *
+ * This endpoint bypasses the auth middleware (see index.ts auth skip logic).
+ * Only files with visibility='public' can be accessed.
+ * Recalled or expired files return 410.
+ *
+ * Response includes CORS header for cross-origin embedding.
+ * No X-File-Encrypted header (public files are unencrypted).
+ */
+export async function handlePublicFile(c: Context<AppContext>): Promise<Response> {
+  const fileId = c.req.param('id');
+
+  if (!fileId) {
+    return c.json(
+      { success: false, error: 'File ID required', code: 'VALIDATION_ERROR' },
+      400
+    );
+  }
+
+  // Look up file in D1
+  const file = await c.env.DB.prepare(
+    `SELECT f.id, f.room_id, f.r2_key, f.file_size, f.mime_type,
+            f.visibility, f.expires_at, f.recalled_at
+     FROM file_metadata f
+     WHERE f.id = ?`
+  ).bind(fileId).first<{
+    id: string;
+    room_id: string;
+    r2_key: string;
+    file_size: number;
+    mime_type: string;
+    visibility: string;
+    expires_at: string;
+    recalled_at: string | null;
+  }>();
+
+  if (!file) {
+    return c.json(
+      { success: false, error: 'File not found', code: 'NOT_FOUND' },
+      404
+    );
+  }
+
+  // Public files only — reject private files with 403
+  if (file.visibility !== 'public') {
+    return c.json(
+      { success: false, error: 'This file is not publicly accessible', code: 'FORBIDDEN' },
+      403
+    );
+  }
+
+  // Check if recalled
+  if (file.recalled_at) {
+    return c.json(
+      { success: false, error: 'File has been recalled', code: 'FILE_EXPIRED' },
+      410
+    );
+  }
+
+  // Check if expired
+  if (new Date(file.expires_at) < new Date()) {
+    // Lazy cleanup
+    try {
+      await c.env.FILES.delete(file.r2_key);
+      await c.env.DB.prepare(
+        'UPDATE file_metadata SET recalled_at = ? WHERE id = ?'
+      ).bind(new Date().toISOString(), fileId).run();
+    } catch {
+      // Best-effort cleanup
+    }
+    return c.json(
+      { success: false, error: 'File has expired', code: 'FILE_EXPIRED' },
+      410
+    );
+  }
+
+  // Stream file from R2
+  try {
+    const r2Object = await c.env.FILES.get(file.r2_key);
+
+    if (!r2Object) {
+      return c.json(
+        { success: false, error: 'File data not found in storage', code: 'NOT_FOUND' },
+        404
+      );
+    }
+
+    // Determine Content-Disposition: use attachment for non-browser-viewable types
+    const browserViewableTypes = ['image/', 'video/', 'audio/', 'text/', 'application/pdf'];
+    const isBrowserViewable = browserViewableTypes.some((t) => file.mime_type.startsWith(t));
+
+    const headers = new Headers();
+    headers.set('Content-Type', file.mime_type);
+    headers.set('Content-Disposition', isBrowserViewable ? 'inline' : 'attachment');
+    headers.set('X-File-Id', fileId);
+    // Allow cross-origin access for public files (embedding on external sites)
+    headers.set('Access-Control-Allow-Origin', '*');
+    // Short cache for public files to prevent CDN caching of expired content
+    // max-age=30, must-revalidate ensures browsers revalidate frequently
+    headers.set('Cache-Control', 'public, max-age=30, must-revalidate');
+
+    if (r2Object.size) {
+      headers.set('Content-Length', r2Object.size.toString());
+    }
+
+    // Preserve R2-stored metadata
+    r2Object.writeHttpMetadata(headers);
+
+    return new Response(r2Object.body, {
+      status: 200,
+      headers,
+    });
+  } catch (err) {
+    console.error('R2 get failed (public):', err);
+    // [Debt: structured logging]
+    return c.json(
+      { success: false, error: 'Storage temporarily unavailable', code: 'SERVICE_UNAVAILABLE' },
+      503
+    );
+  }
 }

@@ -121,6 +121,12 @@ export interface DestroyRoomResponse {
   deleted_messages: number;
 }
 
+export interface DestroyAllRoomsResponse {
+  deleted_rooms: number;
+  deleted_files: number;
+  deleted_messages: number;
+}
+
 // ---- Messages (preview — full types in task_2) ----
 
 export interface MessageDTO {
@@ -216,6 +222,8 @@ export interface FileMetaDTO {
   file_size: number;
   mime_type: string;
   visibility: FileVisibility;
+  /** Whether the file content was encrypted before storage. Derived from visibility: public→false, private→true. */
+  encrypted: boolean;
   expires_at: string;
   recalled_at?: string;
   created_at: string;

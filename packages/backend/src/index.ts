@@ -25,7 +25,7 @@ import { handleListRooms, handleGetRoom } from './rooms/list';
 
 // ---- Files ----
 import { handleUploadInit, handleUploadPart, handleUploadComplete, handleUploadAbort } from './files/upload';
-import { handleFileDownload, handleFileInfo, handleRoomFilesList, handleFileRecall } from './files/download';
+import { handleFileDownload, handleFileInfo, handleRoomFilesList, handleFileRecall, handleRawFile, handlePublicFile } from './files/download';
 
 // ---- Chat ----
 import { handleSendMessage, handleGetMessages, handleRecallMessage } from './chat/messages';
@@ -35,7 +35,7 @@ import { handleWsTicket, handleWsConnect } from './ws/handler';
 
 // ---- Admin ----
 import { handleAdminStats, handleAdminRooms } from './admin/stats';
-import { handleDestroyRoom } from './admin/rooms';
+import { handleDestroyRoom, handleDestroyAllRooms } from './admin/rooms';
 import { handleChangePassword } from './admin/password';
 
 // ---- DO (must be exported for wrangler) ----
@@ -67,6 +67,12 @@ app.use('/api/*', async (c, next) => {
 
   // Skip auth for WS connect — it uses ticket validation instead
   if (c.req.path === '/api/ws/connect') {
+    return next();
+  }
+
+  // Skip auth for public file access endpoint
+  // Public files are explicitly marked as publicly accessible and do not require authentication
+  if (c.req.path.match(/\/api\/files\/[^/]+\/public/)) {
     return next();
   }
 
@@ -149,6 +155,10 @@ app.post('/api/files/upload/part', handleUploadPart);
 app.post('/api/files/upload/complete', handleUploadComplete);
 app.post('/api/files/upload/abort', handleUploadAbort);
 app.get('/api/files/room/:roomId', handleRoomFilesList);
+// Raw and public endpoints must be registered before the general /:id/download route
+// to ensure their distinct path patterns are matched correctly
+app.get('/api/files/:id/raw', handleRawFile);
+app.get('/api/files/:id/public', handlePublicFile);
 app.get('/api/files/:id/download', handleFileDownload);
 app.get('/api/files/:id/info', handleFileInfo);
 app.delete('/api/files/:id', handleFileRecall);
@@ -167,6 +177,9 @@ app.get('/api/ws/connect', handleWsConnect);
 // ---- Admin Routes ----
 app.get('/api/admin/stats', handleAdminStats);
 app.get('/api/admin/rooms', handleAdminRooms);
+// Register DELETE /api/admin/rooms BEFORE /api/admin/rooms/:code
+// to ensure the literal path is matched before the parameterized one
+app.delete('/api/admin/rooms', handleDestroyAllRooms);
 app.delete('/api/admin/rooms/:code', handleDestroyRoom);
 app.put('/api/admin/password', handleChangePassword);
 

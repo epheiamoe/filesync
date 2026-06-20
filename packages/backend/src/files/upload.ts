@@ -252,7 +252,7 @@ export async function handleUploadInit(c: Context<AppContext>): Promise<Response
       customMetadata: {
         'uploaded-by': sessionToken,
         'room-id': room_id,
-        'encrypted': 'true',
+        'encrypted': visibility === 'public' ? 'false' : 'true',
       },
     });
     uploadId = multipart.uploadId;
