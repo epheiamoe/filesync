@@ -1,0 +1,176 @@
+# epheia-files API 文档
+
+> Base URL: `https://epheia-files-api.epheia.workers.dev`
+
+## 认证
+
+所有需要认证的端点需在 Header 中携带 `Authorization: Bearer <token>`。
+
+### POST /api/auth/login
+登录，支持三种方式。
+
+**Body:**
+```json
+{ "method": "admin", "username": "admin", "password": "..." }
+{ "method": "api_key", "api_key": "..." }
+{ "method": "temp_credential", "temp_code": "ABC123" }
+```
+
+**Response:**
+```json
+{ "success": true, "data": { "token": "...", "scope": "admin create_rooms join_room", "account_type": "admin", "expires_at": "2026-06-27T..." } }
+```
+
+### GET /api/auth/session
+验证当前 session 是否有效。
+
+**Response:** `{ "success": true, "data": { "valid": true, "account_type": "admin", "scope": "..." } }`
+
+### POST /api/auth/logout
+登出。
+
+---
+
+## 房间
+
+### POST /api/rooms
+创建房间。
+
+**Body:** `{ "key_hash": "<SHA-256 hex>", "room_code?": "1234" }`
+
+**Response:** `{ "success": true, "data": { "id": "...", "room_code": "1234", "created_at": "..." } }`
+
+### GET /api/rooms
+列出房间。
+
+**Response:** `{ "success": true, "data": { "rooms": [{ "id": "...", "room_code": "1234", "member_count": 1, "created_at": "..." }] } }`
+
+### POST /api/rooms/join
+加入房间。
+
+**Body:** `{ "room_code": "1234", "key_hash": "<SHA-256 hex>", "device_label?": "Windows Chrome" }`
+
+### GET /api/rooms/:code
+获取房间信息。
+
+---
+
+## 聊天
+
+### POST /api/chat/messages
+发送消息。
+
+**Body:** `{ "room_id": "...", "encrypted_content": "<base64>", "message_type": "text|file_shared|system", "device_label?": "..." }`
+
+**Response:** `{ "success": true, "data": { "message_id": "...", "created_at": "..." } }`
+
+### GET /api/chat/messages?room_id=...&before=...&limit=50
+获取消息（分页）。
+
+### DELETE /api/chat/messages/:id
+撤回消息（需发送者本人或管理员）。
+
+**Body:** `{ "room_id": "..." }`
+
+---
+
+## 文件
+
+### POST /api/files/upload/init
+初始化分块上传。
+
+**Body:** `{ "filename": "...", "total_size": 1024, "chunk_size": 5242880, "room_id": "...", "visibility": "private|public", "expires_at?": "ISO8601" }`
+
+**Response:** `{ "success": true, "data": { "upload_id": "...", "r2_key": "...", "chunks_needed": 1 } }`
+
+### POST /api/files/upload/part
+上传分块（multipart/form-data）。
+
+**Fields:** `upload_id`, `part_number` (1-indexed), `chunk` (binary)
+
+### POST /api/files/upload/complete
+完成上传。
+
+**Body:** `{ "upload_id": "...", "r2_key": "...", "parts": [{"etag":"...", "part_number":1}], "encrypted_filename": "...", "file_size": 1024, "mime_type": "text/plain", "visibility": "private", "expires_at": "...", "room_id": "..." }`
+
+### POST /api/files/upload/abort
+取消上传。`{ "upload_id": "..." }`
+
+### GET /api/files/:id/download
+下载文件（私密文件需认证）。
+
+### GET /api/files/:id/info
+获取文件元数据。
+
+### GET /api/files/room/:roomId
+列出房间文件。
+
+### DELETE /api/files/:id
+撤回/删除文件。
+
+---
+
+## WebSocket
+
+### GET /api/ws?room=XXXX&token=YYY
+获取 WebSocket 连接 ticket（60s 有效）。
+
+**Response:** `{ "success": true, "data": { "ticket": "..." } }`
+
+### GET /api/ws/connect?ticket=XXX
+使用 ticket 建立 WebSocket 连接（Upgrade 到 RoomDO）。
+
+WebSocket 消息格式：`{ "event": "message|recall|file_shared|presence", "data": {...} }`
+
+---
+
+## 管理面板（Admin Only）
+
+### GET /api/admin/stats
+**Response:** `{ "success": true, "data": { "r2_total_bytes": 89, "r2_file_count": 2, "room_count": 3, "active_sessions": 5 } }`
+
+### GET /api/admin/rooms
+列出所有房间及用量。
+
+### DELETE /api/admin/rooms/:code
+销毁房间（级联删除所有消息、文件、成员）。
+
+### POST /api/auth/credentials
+创建临时凭证。返回 6 位字母数字码。
+
+### GET /api/auth/credentials
+列出凭证。
+
+### DELETE /api/auth/credentials/:id
+撤销凭证。
+
+### POST /api/auth/api-keys
+创建 API 密钥。
+
+### DELETE /api/auth/api-keys/:keyHash
+撤销 API 密钥。
+
+### PUT /api/admin/password
+修改管理员密码。
+
+**Body:** `{ "current_password": "...", "new_password": "..." }`（至少 8 位）
+
+---
+
+## 错误码
+
+| 状态码 | Code | 含义 |
+|--------|------|------|
+| 400 | VALIDATION_ERROR | 请求参数不合法 |
+| 401 | UNAUTHORIZED | 未认证或认证过期 |
+| 403 | FORBIDDEN | 无权限（非房间成员/非管理员） |
+| 404 | NOT_FOUND | 资源不存在 |
+| 409 | CONFLICT | 房间码已占用 |
+| 410 | GONE | 资源已过期/已撤回 |
+| 500 | INTERNAL_ERROR | 服务器内部错误 |
+
+## 限流与轮询
+
+当前版本未实现速率限制（TODO）。消息轮询可通过 `GET /api/chat/messages?room_id=...` 实现，建议间隔 2-5 秒。
+
+WebSocket 是推荐的实时通信方式（使用 RoomDO + hibernatable 模式优化成本）。
