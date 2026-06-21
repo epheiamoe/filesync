@@ -258,11 +258,18 @@ export interface ApiResponse<T = unknown> {
 // ---- WebSocket / DO Types ----
 
 export interface WsMessage {
-  type: 'chat' | 'file_shared' | 'recall' | 'member_join' | 'member_leave' | 'system';
+  type: 'chat' | 'file_shared' | 'recall' | 'member_join' | 'member_leave'
+       | 'system' | 'message_expired' | 'file_expired';
   payload: unknown;
   sender_session_id: string;
   device_label: string;
   timestamp: string;
+}
+
+/** Payload for message_expired / file_expired WS events sent by cron cleanup. */
+export interface ExpiredItemPayload {
+  id: string;           // message_id or file_id
+  room_id: string;      // for client-side scope validation
 }
 
 /** DO broadcast event — sent from Worker to RoomDO for relaying to clients */

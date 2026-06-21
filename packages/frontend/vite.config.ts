@@ -4,6 +4,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_FEATURE_FRONTEND_AUTO_DESTROY': JSON.stringify(
+      process.env.VITE_FEATURE_FRONTEND_AUTO_DESTROY || 'true',
+    ),
+  },
   plugins: [
     react(),
     VitePWA({

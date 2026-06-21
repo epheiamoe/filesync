@@ -91,6 +91,8 @@ export interface AppState {
   addMessage: (msg: MessageDTO) => void;
   setMessages: (msgs: MessageDTO[]) => void;
   removeMessage: (id: string) => void;
+  /** Remove all messages/files whose expires_at is in the past. Idempotent. */
+  removeExpiredItems: () => void;
   addFile: (file: FileMetaDTO) => void;
   setFiles: (files: FileMetaDTO[]) => void;
   removeFile: (id: string) => void;
@@ -212,6 +214,19 @@ export const useStore = create<AppState>((set) => ({
   removeMessage: (id) => {
     set((state) => ({
       messages: state.messages.filter((m) => m.id !== id),
+    }));
+  },
+
+  /** Remove all messages/files whose expires_at is in the past. Idempotent, safe to call repeatedly. */
+  removeExpiredItems: () => {
+    const now = Date.now();
+    set((state) => ({
+      messages: state.messages.filter(
+        (m) => !m.expires_at || new Date(m.expires_at).getTime() > now,
+      ),
+      files: state.files.filter(
+        (f) => !f.expires_at || new Date(f.expires_at).getTime() > now,
+      ),
     }));
   },
 

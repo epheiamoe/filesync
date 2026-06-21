@@ -10,7 +10,7 @@
  * - Recalled messages shown with italic muted style
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
@@ -21,6 +21,9 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import { CountdownCircle } from '@/components/ui/CountdownCircle';
 import type { MessageDTO } from '@/lib/store';
+
+/** Build-time feature flag: when true, expired items auto-hide with animation. */
+const AUTO_DESTROY = import.meta.env.VITE_FEATURE_FRONTEND_AUTO_DESTROY === 'true';
 
 interface MessageBubbleProps {
   message: MessageDTO;
@@ -41,6 +44,9 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
   const isRecalled = !!message.recalled_at;
   const isOwnMessage = message.sender_session_id === session?.token;
 
+  // Track why we're destroying so handleDestroyed can pick the right toast message.
+  const destroyReasonRef = useRef<'recall' | 'expired' | null>(null);
+
   const handleCopy = useCallback(async () => {
     if (!decryptedContent) return;
     try {
@@ -56,15 +62,27 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
     try {
       await api.recallMessage(message.id, message.room_id);
       // Start destruction animation — onDestroyed will remove from store
+      destroyReasonRef.current = 'recall';
       setIsDestroying(true);
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     }
   }, [message.id, message.room_id, addToast]);
 
+  /** Called by CountdownCircle when TTL expires. If feature flag is on, triggers auto-hide. */
+  const handleExpired = useCallback(() => {
+    if (!AUTO_DESTROY) return;
+    destroyReasonRef.current = 'expired';
+    setIsDestroying(true);
+  }, []);
+
   const handleDestroyed = useCallback(() => {
     removeMessage(message.id);
-    addToast({ type: 'info', message: t('chat.recalled') });
+    if (destroyReasonRef.current === 'expired') {
+      addToast({ type: 'info', message: t('chat.messageExpired') });
+    } else {
+      addToast({ type: 'info', message: t('chat.recalled') });
+    }
   }, [message.id, removeMessage, addToast]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -166,6 +184,7 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
                 ttlSeconds={message.ttl_seconds}
                 size={14}
                 strokeWidth={1.5}
+                onExpired={handleExpired}
               />
             )}
           </div>

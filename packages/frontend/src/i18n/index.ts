@@ -115,6 +115,8 @@ const translations: Translations = {
   'chat.contentCopied': { 'zh-CN': '内容已复制', 'en-US': 'Content copied' },
   'chat.fileUnavailable': { 'zh-CN': '文件不可用', 'en-US': 'File unavailable' },
   'chat.sendFailed': { 'zh-CN': '消息发送失败', 'en-US': 'Message send failed' },
+  'chat.messageExpired': { 'zh-CN': '消息已过期销毁', 'en-US': 'Message expired' },
+  'chat.fileExpired': { 'zh-CN': '文件已过期销毁', 'en-US': 'File expired' },
   'chat.public': { 'zh-CN': '公开', 'en-US': 'Public' },
   'chat.newMessages': { 'zh-CN': '条新消息', 'en-US': ' new messages' },
   'chat.shareDialog': { 'zh-CN': '分享文件', 'en-US': 'Share File' },

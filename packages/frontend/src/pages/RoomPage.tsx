@@ -30,6 +30,9 @@ import { QRShare } from '@/components/shared/QRShare';
 import { buildLoginUrl } from '@/lib/url';
 import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
 
+/** Build-time feature flag: when true, expired items are auto-removed from the UI. */
+const AUTO_DESTROY = import.meta.env.VITE_FEATURE_FRONTEND_AUTO_DESTROY === 'true';
+
 // ---- Upload task tracking (same shape as UploadZone) ----
 
 interface UploadTask {
@@ -301,6 +304,45 @@ export function RoomPage() {
               (m) => m.session_id !== payload.session_id,
             ),
           }));
+          break;
+        }
+        case 'message_expired': {
+          // Cron cleanup removed an expired message on the backend.
+          // Only remove if the feature flag is on; otherwise just show a toast.
+          const payload = event.payload as { id: string; room_id: string };
+          if (!payload.id) break;
+          if (AUTO_DESTROY) {
+            removeMessage(payload.id);
+          }
+          useStore.getState().addToast({
+            type: 'info',
+            message: t('chat.messageExpired'),
+          });
+          break;
+        }
+        case 'file_expired': {
+          const payload = event.payload as { id: string; room_id: string };
+          if (!payload.id) break;
+          if (AUTO_DESTROY) {
+            removeFile(payload.id);
+          }
+          useStore.getState().addToast({
+            type: 'info',
+            message: t('chat.fileExpired'),
+          });
+          break;
+        }
+        case 'system': {
+          const payload = event.payload as { action?: string; room_code?: string; message?: string };
+          if (payload.action === 'room_destroyed') {
+            useStore.getState().addToast({
+              type: 'info',
+              message: payload.message || t('rooms.deleted'),
+            });
+            navigate('/rooms');
+          } else {
+            console.warn('[RoomPage] Unknown system action:', payload.action);
+          }
           break;
         }
       }

@@ -31,6 +31,8 @@ export interface CountdownCircleProps {
   ttlSeconds?: number;
   /** Custom className. */
   className?: string;
+  /** Called once when the countdown reaches zero. Guarded against duplicate calls via useRef. */
+  onExpired?: () => void;
 }
 
 /** Format remaining milliseconds to a human-readable string. */
@@ -54,6 +56,7 @@ export function CountdownCircle({
   strokeWidth = 2,
   ttlSeconds,
   className = '',
+  onExpired,
 }: CountdownCircleProps) {
   const [remaining, setRemaining] = useState(0);
   const [percent, setPercent] = useState(0);
@@ -62,6 +65,10 @@ export function CountdownCircle({
   // Capture the initial remaining time as baseline when ttlSeconds is not provided.
   // This allows us to display a percentage even without an explicit TTL.
   const initialBaselineRef = useRef<number>(0);
+
+  // Guard to ensure onExpired fires at most once, even if setInterval
+  // fires multiple ticks after remaining hits zero.
+  const expiredFiredRef = useRef(false);
 
   // Single interval updates both remaining and percent every second
   useEffect(() => {
@@ -73,6 +80,10 @@ export function CountdownCircle({
 
       if (rem <= 0) {
         setPercent(0);
+        if (!expiredFiredRef.current) {
+          expiredFiredRef.current = true;
+          onExpired?.();
+        }
         return;
       }
 
@@ -95,7 +106,7 @@ export function CountdownCircle({
     update();
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
-  }, [expiresAt, ttlSeconds]);
+  }, [expiresAt, ttlSeconds, onExpired]);
 
   // Determine color based on remaining percentage
   const color =

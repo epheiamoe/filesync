@@ -292,6 +292,53 @@ export class RoomSocket {
       case 'pong':
         // Heartbeat response — no action needed
         break;
+      case 'system': {
+        // Admin-level system events (e.g. room_destroyed).
+        // Forward the full payload so the handler (RoomPage) can dispatch.
+        const wsMsg: WsMessage = {
+          type: 'system',
+          payload: {
+            action: rawPayload?.action,
+            room_code: rawPayload?.room_code,
+            message: rawPayload?.message,
+          },
+          sender_session_id: senderSessionId || 'system',
+          device_label: deviceLabel || 'System',
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
+      case 'message_expired': {
+        // Cron cleanup broadcast: a message's TTL expired and it was deleted server-side.
+        const wsMsg: WsMessage = {
+          type: 'message_expired',
+          payload: {
+            id: rawPayload.id || rawPayload.message_id,
+            room_id: rawPayload.room_id || '',
+          },
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
+      case 'file_expired': {
+        // Cron cleanup broadcast: a file's TTL expired and it was deleted server-side.
+        const wsMsg: WsMessage = {
+          type: 'file_expired',
+          payload: {
+            id: rawPayload.id || rawPayload.file_id,
+            room_id: rawPayload.room_id || '',
+          },
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
       default:
         // Unknown event type — log for debugging; don't silently swallow
         // critical DO broadcasts (e.g., member_join, member_leave, system).

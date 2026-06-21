@@ -61,10 +61,11 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
   // ---- a. Clean expired files ----
   try {
     const expiredFileRows = await env.DB.prepare(
-      `SELECT id, r2_key, file_size, room_id
-       FROM file_metadata
-       WHERE expires_at < ? AND recalled_at IS NULL`
-    ).bind(now).all<{ id: string; r2_key: string; file_size: number; room_id: string }>();
+      `SELECT fm.id, fm.r2_key, fm.file_size, fm.room_id, r.room_code
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.expires_at < ? AND fm.recalled_at IS NULL`
+    ).bind(now).all<{ id: string; r2_key: string; file_size: number; room_id: string; room_code: string }>();
 
     for (const row of expiredFileRows.results || []) {
       try {
@@ -88,6 +89,25 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
         } catch { /* usage_stats may not have row for this room */ }
 
         expiredFiles++;
+
+        // Broadcast file_expired via RoomDO so online clients can remove the file card.
+        try {
+          const doId = env.RoomDO.idFromName(row.room_code);
+          const roomStub = env.RoomDO.get(doId);
+          const expiredEvent = {
+            type: 'file_expired' as const,
+            payload: { id: row.id, room_id: row.room_id },
+            sender_session_id: 'system',
+            device_label: 'System',
+            timestamp: now,
+          };
+          await roomStub.fetch(new URL('http://do/internal/broadcast'), {
+            method: 'POST',
+            body: JSON.stringify(expiredEvent),
+          });
+        } catch {
+          // Broadcast is best-effort — deletion already succeeded.
+        }
       } catch (err) {
         console.error('Failed to clean expired file:', row.id, err);
       }
@@ -158,6 +178,20 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
 
   // ---- c. Delete expired burn-after-reading messages ----
   try {
+    // SELECT first to know which messages to broadcast, then DELETE.
+    let expiredMsgRows: { id: string; room_id: string; room_code: string }[] = [];
+    try {
+      expiredMsgRows = (await env.DB.prepare(
+        `SELECT m.id, m.room_id, r.room_code
+         FROM messages m
+         JOIN rooms r ON r.id = m.room_id
+         WHERE m.expires_at IS NOT NULL AND m.expires_at < ?`
+      ).bind(now).all<{ id: string; room_id: string; room_code: string }>()).results || [];
+    } catch {
+      // expires_at column may not exist yet
+    }
+
+    // Delete expired messages
     let expireResult;
     try {
       expireResult = await env.DB.prepare(
@@ -169,6 +203,27 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
       expireResult = { meta: { changes: 0 } };
     }
     expiredMessages = (expireResult as any).meta?.changes || 0;
+
+    // Broadcast message_expired to each room via RoomDO
+    for (const row of expiredMsgRows) {
+      try {
+        const doId = env.RoomDO.idFromName(row.room_code);
+        const roomStub = env.RoomDO.get(doId);
+        const expiredEvent = {
+          type: 'message_expired' as const,
+          payload: { id: row.id, room_id: row.room_id },
+          sender_session_id: 'system',
+          device_label: 'System',
+          timestamp: now,
+        };
+        await roomStub.fetch(new URL('http://do/internal/broadcast'), {
+          method: 'POST',
+          body: JSON.stringify(expiredEvent),
+        });
+      } catch {
+        // Broadcast is best-effort — deletion already succeeded.
+      }
+    }
   } catch (err) {
     console.error('Failed to delete expired messages:', err);
   }

@@ -21,7 +21,7 @@
  * - For MVP, no syntax highlighting — plain monospace text (bundle size concern)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api, getApiBaseUrl } from '@/lib/api';
@@ -35,6 +35,9 @@ import { Lightbox } from '@/components/ui/Lightbox';
 import { TextViewModal } from '@/components/ui/TextViewModal';
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu';
 import type { FileMetaDTO } from '@/lib/store';
+
+/** Build-time feature flag: when true, expired items auto-hide with animation. */
+const AUTO_DESTROY = import.meta.env.VITE_FEATURE_FRONTEND_AUTO_DESTROY === 'true';
 
 export interface ChatFileCardProps {
   file: FileMetaDTO;
@@ -96,6 +99,16 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const isOwnFile = file.uploader_session_id === session?.token;
   const isRecalled = !!file.recalled_at;
   const isPublic = file.visibility === 'public';
+  /** True when expires_at is in the past and the file hasn't been recalled.
+   *  Used to show an "已过期" badge and disable action buttons. */
+  const isExpired = useMemo(() => {
+    if (isRecalled) return false;
+    if (!file.expires_at) return false;
+    return Date.now() > new Date(file.expires_at).getTime();
+  }, [file.expires_at, isRecalled]);
+
+  // Track why we're destroying so handleDestroyed can pick the right toast message.
+  const destroyReasonRef = useRef<'recall' | 'expired' | null>(null);
   // Download link: served by the API (filesync-api.epheia.workers.dev/api/... in prod, /api/... in dev)
   const downloadUrl = isPublic
     ? `${getApiBaseUrl()}/files/${file.id}/public?download=1`
@@ -139,7 +152,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isImage || isRecalled) return;
+    if (!isImage || isRecalled || isExpired) return;
 
     let revoked = false;
     const fetchImage = async () => {
@@ -184,7 +197,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     };
     // Only re-fetch when file.id changes (not on imageBlobUrl change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.id, isImage, isRecalled]);
+  }, [file.id, isImage, isRecalled, isExpired]);
 
   // ---- Handlers ----
 
@@ -231,15 +244,27 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const handleRecall = useCallback(async () => {
     try {
       await api.recallFile(file.id);
+      destroyReasonRef.current = 'recall';
       setIsDestroying(true);
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     }
   }, [file.id, addToast]);
 
+  /** Called by CountdownCircle when TTL expires. If feature flag is on, triggers auto-hide. */
+  const handleExpired = useCallback(() => {
+    if (!AUTO_DESTROY) return;
+    destroyReasonRef.current = 'expired';
+    setIsDestroying(true);
+  }, []);
+
   const handleDestroyed = useCallback(() => {
     removeFile(file.id);
-    addToast({ type: 'info', message: t('chat.recalled') });
+    if (destroyReasonRef.current === 'expired') {
+      addToast({ type: 'info', message: t('chat.fileExpired') });
+    } else {
+      addToast({ type: 'info', message: t('chat.recalled') });
+    }
   }, [file.id, removeFile, addToast]);
 
   // Share dialog handlers
@@ -339,7 +364,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
           },
         ]
       : []),
-    ...(isOwnFile && !isRecalled
+    ...(isOwnFile && !isRecalled && !isExpired
       ? [
           {
             key: 'recall' as const,
@@ -375,7 +400,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
           },
         ]
       : []),
-    ...(isOwnFile && !isRecalled
+    ...(isOwnFile && !isRecalled && !isExpired
       ? [
           {
             key: 'recall' as const,
@@ -480,14 +505,23 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   <span className="text-[10px] text-muted-soft">{time}</span>
                 </div>
                 {/* Countdown circle for file expiry */}
-                {!isRecalled && (
+                {!isRecalled && file.expires_at && (
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
                       ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
+                      onExpired={handleExpired}
                     />
+                  </div>
+                )}
+                {/* Expired badge (file expired but not yet removed from UI) */}
+                {isExpired && (
+                  <div className="absolute top-1.5 right-1.5 z-10">
+                    <Badge variant="coral" className="text-[10px] px-1.5 py-0.5">
+                      {t('transfer.expired')}
+                    </Badge>
                   </div>
                 )}
               </div>
@@ -509,20 +543,30 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                     size="sm"
                     loading={textContentLoading}
                     onClick={handleOpenText}
+                    disabled={isExpired}
                   >
                     {t('chat.openFile')}
                   </Button>
                 </div>
                 <span className="text-[10px] text-muted-soft mt-1 block">{time}</span>
                 {/* Countdown circle for file expiry */}
-                {!isRecalled && (
+                {!isRecalled && file.expires_at && (
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
                       ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
+                      onExpired={handleExpired}
                     />
+                  </div>
+                )}
+                {/* Expired badge (file expired but not yet removed from UI) */}
+                {isExpired && (
+                  <div className="absolute top-1.5 right-1.5 z-10">
+                    <Badge variant="coral" className="text-[10px] px-1.5 py-0.5">
+                      {t('transfer.expired')}
+                    </Badge>
                   </div>
                 )}
               </div>
@@ -544,20 +588,30 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                     size="sm"
                     loading={downloading}
                     onClick={handleDownload}
+                    disabled={isExpired}
                   >
                     {t('transfer.download')}
                   </Button>
                 </div>
                 <span className="text-[10px] text-muted-soft mt-1 block">{time}</span>
                 {/* Countdown circle for file expiry */}
-                {!isRecalled && (
+                {!isRecalled && file.expires_at && (
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
                       ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
+                      onExpired={handleExpired}
                     />
+                  </div>
+                )}
+                {/* Expired badge (file expired but not yet removed from UI) */}
+                {isExpired && (
+                  <div className="absolute top-1.5 right-1.5 z-10">
+                    <Badge variant="coral" className="text-[10px] px-1.5 py-0.5">
+                      {t('transfer.expired')}
+                    </Badge>
                   </div>
                 )}
               </div>
@@ -573,8 +627,8 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         src={imageBlobUrl || ''}
         alt={decryptedName || t('chat.viewImage')}
         onDownload={handleDownload}
-        onRecall={isOwnFile && !isRecalled ? handleRecall : undefined}
-        showRecall={isOwnFile && !isRecalled}
+        onRecall={isOwnFile && !isRecalled && !isExpired ? handleRecall : undefined}
+        showRecall={isOwnFile && !isRecalled && !isExpired}
       />
 
       {/* Text File Viewer Modal */}
