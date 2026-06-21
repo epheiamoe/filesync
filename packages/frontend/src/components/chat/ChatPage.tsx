@@ -49,12 +49,13 @@ export function ChatPage({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const prevTotalRef = useRef(0);
 
-  // With flex-col-reverse, scrollTop === 0 means at "bottom" (newest messages visible).
-  // We use a small threshold (50px) to account for minor scroll jitter.
+  // Normal scroll: scrollTop starts at 0 (top). We use justify-end to push
+  // messages to the bottom, so "at bottom" means scrolled all the way down.
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const atBottom = el.scrollTop <= 50;
+    // Check if scrolled to within 50px of the bottom
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
     setIsAtBottom(atBottom);
     if (atBottom) setNewMessageCount(0);
   }, []);
@@ -62,9 +63,8 @@ export function ChatPage({
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    // With flex-col-reverse, scrolling to 0 means bottom (newest items)
     requestAnimationFrame(() => {
-      el.scrollTop = 0;
+      el.scrollTop = el.scrollHeight;
     });
   }, []);
 
@@ -85,7 +85,9 @@ export function ChatPage({
     prevTotalRef.current = totalItems;
   }, [totalItems, isAtBottom]);
 
-  // Merge messages and files into a single timeline sorted by created_at
+  // Merge messages and files into a single timeline sorted DESC (newest first).
+  // With flex-col + justify-end, the newest item is pushed to the visual bottom,
+  // and empty space appears ABOVE the messages (Telegram-style).
   const timeline = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = [
       ...messages.map((m) => ({
@@ -99,7 +101,7 @@ export function ChatPage({
         timestamp: f.created_at,
       })),
     ];
-    items.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    items.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     return items;
   }, [messages, files]);
 
@@ -128,23 +130,15 @@ export function ChatPage({
         </div>
       )}
 
-      {/* Timeline — flex-col-reverse so newest items are at the visual bottom.
-          With CSS flex-col-reverse, the first array element (oldest) appears at
-          the far scroll end, and the last (newest) renders at the visual bottom.
-          scrollTop === 0 means "at bottom" (viewing newest messages). */}
+      {/* Timeline — flex-col + justify-end + min-h-full pushes messages to the bottom.
+          Empty space appears ABOVE when there are few messages (Telegram-style).
+          Normal scroll: scrollTop=0 is top, scrollTop=scrollHeight is bottom. */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-1 relative"
       >
-        <motion.div
-          className="flex flex-col-reverse gap-1"
-          initial="hidden"
-          animate="visible"
-          variants={{
-            visible: { transition: { staggerChildren: 0.03 } },
-          }}
-        >
+        <div className="flex flex-col justify-end min-h-full gap-1">
           <AnimatePresence>
             {timeline.map((item) => {
               if (item.kind === 'message' && item.message) {
@@ -173,7 +167,7 @@ export function ChatPage({
               return null;
             })}
           </AnimatePresence>
-        </motion.div>
+        </div>
 
         {/* "n new messages" button — shown when scrolled away from bottom */}
         {!isAtBottom && newMessageCount > 0 && (
