@@ -49,8 +49,9 @@ export function ChatPage({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const prevTotalRef = useRef(0);
 
-  // Normal scroll: scrollTop starts at 0 (top). We use justify-end to push
-  // messages to the bottom, so "at bottom" means scrolled all the way down.
+  // Normal scroll: scrollTop starts at 0 (top). A flex-1 spacer before the
+  // message list pushes messages to the bottom when content is short.
+  // "At bottom" means scrolled all the way down.
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -85,9 +86,9 @@ export function ChatPage({
     prevTotalRef.current = totalItems;
   }, [totalItems, isAtBottom]);
 
-  // Merge messages and files into a single timeline sorted DESC (newest first).
-  // With flex-col + justify-end, the newest item is pushed to the visual bottom,
-  // and empty space appears ABOVE the messages (Telegram-style).
+  // Merge messages and files into a single timeline sorted ASC (oldest first).
+  // A flex-1 spacer before the message list pushes messages to the bottom
+  // when content doesn't overflow the container (Telegram-style).
   const timeline = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = [
       ...messages.map((m) => ({
@@ -101,7 +102,7 @@ export function ChatPage({
         timestamp: f.created_at,
       })),
     ];
-    items.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    items.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     return items;
   }, [messages, files]);
 
@@ -130,15 +131,18 @@ export function ChatPage({
         </div>
       )}
 
-      {/* Timeline — flex-col + justify-end + min-h-full pushes messages to the bottom.
-          Empty space appears ABOVE when there are few messages (Telegram-style).
+      {/* Timeline — flex-col with flex-1 spacer pushes messages to the bottom
+          when content is shorter than the container (Telegram-style).
           Normal scroll: scrollTop=0 is top, scrollTop=scrollHeight is bottom. */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-1 relative"
       >
-        <div className="flex flex-col justify-end min-h-full gap-1">
+        <div className="flex flex-col min-h-full gap-1">
+          {/* Spacer: fills empty space above messages (Telegram-style).
+              flex-1 shrinks to 0 when messages overflow the container. */}
+          <div className="flex-1" />
           <AnimatePresence>
             {timeline.map((item) => {
               if (item.kind === 'message' && item.message) {
