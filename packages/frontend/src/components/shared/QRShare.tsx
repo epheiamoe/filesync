@@ -11,6 +11,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
+import { useStore } from '@/lib/store';
+import { buildLoginUrl } from '@/lib/url';
 import { Button } from '@/components/ui/Button';
 
 interface CredentialResult {
@@ -42,12 +44,15 @@ export function QRShare({
 }: QRShareProps) {
   const simpleCanvasRef = useRef<HTMLCanvasElement>(null);
   const fullCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedSimple, setCopiedSimple] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedCredCode, setCopiedCredCode] = useState(false);
   const [showFullQR, setShowFullQR] = useState(false);
   const [generatedCred, setGeneratedCred] = useState<CredentialResult | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedFullUrl, setGeneratedFullUrl] = useState('');
   const navigate = useNavigate();
+  const addToast = useStore((s) => s.addToast);
 
   // ---- Simple QR rendering ----
   useEffect(() => {
@@ -96,7 +101,7 @@ export function QRShare({
   }, [generatedCred]);
 
   // ---- Copy handlers ----
-  const handleCopy = async () => {
+  const handleCopySimple = async () => {
     try {
       await navigator.clipboard.writeText(shareString);
     } catch {
@@ -107,8 +112,9 @@ export function QRShare({
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedSimple(true);
+    setTimeout(() => setCopiedSimple(false), 2000);
+    addToast({ type: 'success', message: t('chat.copied') });
   };
 
   const handleCopyUrl = async () => {
@@ -124,8 +130,9 @@ export function QRShare({
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+    addToast({ type: 'success', message: t('chat.copied') });
   };
 
   const handleCopyCredCode = async () => {
@@ -140,8 +147,9 @@ export function QRShare({
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCredCode(true);
+    setTimeout(() => setCopiedCredCode(false), 2000);
+    addToast({ type: 'success', message: t('chat.copied') });
   };
 
   // ---- Generate credential ----
@@ -151,9 +159,7 @@ export function QRShare({
     try {
       const cred = await onGenerateCredential();
       setGeneratedCred(cred);
-      setGeneratedFullUrl(
-        `${window.location.origin}/login#${encodeURIComponent(shareString)}-${cred.code}`,
-      );
+      setGeneratedFullUrl(buildLoginUrl(shareString, cred.code));
     } catch {
       // Error handled by caller (toast)
     } finally {
@@ -292,9 +298,9 @@ export function QRShare({
                           variant="secondary"
                           size="sm"
                           onClick={handleCopyCredCode}
-                          aria-label={copied ? t('common.copied') : t('common.copy')}
+                          aria-label={copiedCredCode ? t('common.copied') : t('common.copy')}
                         >
-                          {t('common.copy')}
+                          {copiedCredCode ? t('common.copied') : t('common.copy')}
                         </Button>
                       </div>
                     </motion.div>
@@ -316,9 +322,9 @@ export function QRShare({
                       variant="secondary"
                       size="sm"
                       onClick={handleCopyUrl}
-                      aria-label={copied ? t('common.copied') : t('common.copy')}
+                      aria-label={copiedUrl ? t('common.copied') : t('common.copy')}
                     >
-                      {t('common.copy')}
+                      {copiedUrl ? t('common.copied') : t('common.copy')}
                     </Button>
                   </div>
                 </div>
@@ -336,10 +342,10 @@ export function QRShare({
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={handleCopy}
-                    aria-label={copied ? t('common.copied') : t('common.copy')}
+                    onClick={handleCopySimple}
+                    aria-label={copiedSimple ? t('common.copied') : t('common.copy')}
                   >
-                    {copied ? t('common.copied') : t('common.copy')}
+                    {copiedSimple ? t('common.copied') : t('common.copy')}
                   </Button>
                 </div>
               </div>

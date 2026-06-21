@@ -27,6 +27,7 @@ import { TransferPage } from '@/components/transfer/TransferPage';
 import { UploadProgress } from '@/components/transfer/UploadProgress';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { QRShare } from '@/components/shared/QRShare';
+import { buildLoginUrl } from '@/lib/url';
 import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
 
 // ---- Upload task tracking (same shape as UploadZone) ----
@@ -843,7 +844,7 @@ export function RoomPage() {
             fullQrUrl={fullQrUrl}
             onGenerateCredential={async () => {
               const result = await api.createTempCredential();
-              const loginUrl = `${window.location.origin}/login#${encodeURIComponent(shareString)}-${result.code}`;
+              const loginUrl = buildLoginUrl(shareString, result.code);
               setFullQrUrl(loginUrl);
               return { code: result.code, expires_at: result.expires_at };
             }}

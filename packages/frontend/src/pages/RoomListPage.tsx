@@ -30,7 +30,16 @@ export function RoomListPage() {
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
   const [customCode, setCustomCode] = useState('');
-  const [shareStringInput, setShareStringInput] = useState('');
+  const [shareStringInput, setShareStringInput] = useState(() => {
+    // If user arrived via QR scan auto-login, pre-populate the share string
+    const pending = useStore.getState().pendingShareString;
+    if (pending) {
+      // Clear after reading (one-time use)
+      setTimeout(() => useStore.getState().setPendingShareString(null), 0);
+      return pending;
+    }
+    return '';
+  });
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);

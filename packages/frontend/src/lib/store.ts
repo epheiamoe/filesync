@@ -81,6 +81,9 @@ export interface AppState {
   // ---- UI ----
   toasts: Toast[];
 
+  // ---- QR / Share ----
+  pendingShareString: string | null;
+
   // ---- Actions ----
   login: (session: SessionInfo) => void;
   logout: () => void;
@@ -95,6 +98,7 @@ export interface AppState {
   setDeviceLabel: (label: string) => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
+  setPendingShareString: (s: string | null) => void;
 }
 
 export interface Toast {
@@ -142,6 +146,7 @@ export const useStore = create<AppState>((set) => ({
   onlineMembers: [],
   deviceLabel: 'Unknown Device',
   toasts: [],
+  pendingShareString: null,
 
   // ---- Auth Actions ----
   login: (session) => {
@@ -263,4 +268,7 @@ export const useStore = create<AppState>((set) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     }));
   },
+
+  // ---- QR / Share ----
+  setPendingShareString: (s) => set({ pendingShareString: s }),
 }));

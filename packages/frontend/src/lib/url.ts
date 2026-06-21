@@ -23,6 +23,11 @@ export function getAppDomain(): string {
  * server never sees the share key).
  */
 export function buildLoginUrl(shareString: string, credential?: string): string {
-  const base = `${getAppDomain()}/login#${shareString}`;
+  // encodeURIComponent ensures the share string is safe in URL context
+  // (e.g., share string may contain / or % characters from base32 encoding).
+  // The credential code is always 6-char alphanumeric, so encoding is not
+  // strictly necessary but applied for consistency.
+  const encoded = encodeURIComponent(shareString);
+  const base = `${getAppDomain()}/login#${encoded}`;
   return credential ? `${base}-${credential}` : base;
 }
