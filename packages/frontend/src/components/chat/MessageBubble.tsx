@@ -19,6 +19,7 @@ import { ExpandableText } from '@/components/ui/ExpandableText';
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
+import { CountdownCircle } from '@/components/ui/CountdownCircle';
 import type { MessageDTO } from '@/lib/store';
 
 interface MessageBubbleProps {
@@ -156,7 +157,18 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
           </div>
 
           {/* Timestamp */}
-          <span className="text-[10px] text-muted-soft px-1">{time}</span>
+          <div className="flex items-center gap-1.5 px-1">
+            <span className="text-[10px] text-muted-soft">{time}</span>
+            {/* Burn-after-read countdown circle */}
+            {message.expires_at && !isRecalled && (
+              <CountdownCircle
+                expiresAt={message.expires_at}
+                ttlSeconds={message.ttl_seconds}
+                size={14}
+                strokeWidth={1.5}
+              />
+            )}
+          </div>
         </motion.div>
       </DestroyAnimation>
 

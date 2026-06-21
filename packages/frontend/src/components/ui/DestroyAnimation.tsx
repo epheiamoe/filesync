@@ -41,6 +41,7 @@ export function DestroyAnimation({
           ? { scale: 0, opacity: 0 }
           : { scale: 1, opacity: 1 }
       }
+      exit={{ opacity: 0, scale: 0, transition: { duration: 0.15 } }}
       transition={
         isDestroying
           ? { type: 'spring', stiffness: 300, damping: 25, duration: 0.4 }

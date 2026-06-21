@@ -29,6 +29,7 @@ import { useStore } from '@/lib/store';
 import { getRoomKey, decryptText, decryptFile } from '@/lib/crypto';
 import { Button } from '@/components/ui/Button';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
+import { CountdownCircle } from '@/components/ui/CountdownCircle';
 import { Lightbox } from '@/components/ui/Lightbox';
 import { TextViewModal } from '@/components/ui/TextViewModal';
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu';
@@ -83,6 +84,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const [textContentLoading, setTextContentLoading] = useState(false);
   const [isDestroying, setIsDestroying] = useState(false);
   const [imageContextMenu, setImageContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [fileContextMenu, setFileContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const addToast = useStore((s) => s.addToast);
   const removeFile = useStore((s) => s.removeFile);
@@ -287,6 +289,33 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
       : []),
   ];
 
+  // Generic file card context menu (for text and other non-image files)
+  const handleFileContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setFileContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const fileMenuItems: ContextMenuItem[] = [
+    {
+      key: 'download',
+      label: t('chat.downloadFile'),
+      onClick: handleDownload,
+    },
+    ...(isOwnFile && !isRecalled
+      ? [
+          {
+            key: 'recall' as const,
+            label: t('chat.recall'),
+            danger: true as const,
+            onClick: () => {
+              handleRecall();
+            },
+          },
+        ]
+      : []),
+  ];
+
   // ---- Rendering helpers ----
 
   const formatSize = (bytes: number): string => {
@@ -327,7 +356,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         >
           <div
             className={`
-              max-w-[85%] sm:max-w-[70%] rounded-lg px-3.5 py-2.5
+              relative max-w-[85%] sm:max-w-[70%] rounded-lg px-3.5 py-2.5
               ${isSelf ? 'bg-primary/10' : 'bg-canvas-card'}
             `.trim().replace(/\s+/g, ' ')}
           >
@@ -364,10 +393,20 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   </span>
                   <span className="text-[10px] text-muted-soft">{time}</span>
                 </div>
+                {/* Countdown circle for file expiry */}
+                {!isRecalled && (
+                  <div className="absolute bottom-1 right-1">
+                    <CountdownCircle
+                      expiresAt={file.expires_at}
+                      size={18}
+                      strokeWidth={1.5}
+                    />
+                  </div>
+                )}
               </div>
             ) : isText ? (
               /* ---- Text file card ---- */
-              <div>
+              <div onContextMenu={handleFileContextMenu}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-lg" role="img" aria-label="file-type">📄</span>
                   <span className="text-sm font-medium text-body truncate">
@@ -388,10 +427,20 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   </Button>
                 </div>
                 <span className="text-[10px] text-muted-soft mt-1 block">{time}</span>
+                {/* Countdown circle for file expiry */}
+                {!isRecalled && (
+                  <div className="absolute bottom-1 right-1">
+                    <CountdownCircle
+                      expiresAt={file.expires_at}
+                      size={18}
+                      strokeWidth={1.5}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               /* ---- Generic file card (existing behavior) ---- */
-              <div>
+              <div onContextMenu={handleFileContextMenu}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-lg" role="img" aria-label="file-type">{mimeIcon}</span>
                   <span className="text-sm font-medium text-body truncate">
@@ -412,6 +461,16 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   </Button>
                 </div>
                 <span className="text-[10px] text-muted-soft mt-1 block">{time}</span>
+                {/* Countdown circle for file expiry */}
+                {!isRecalled && (
+                  <div className="absolute bottom-1 right-1">
+                    <CountdownCircle
+                      expiresAt={file.expires_at}
+                      size={18}
+                      strokeWidth={1.5}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -445,6 +504,14 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         onClose={() => setImageContextMenu(null)}
         items={imageMenuItems}
         position={imageContextMenu}
+      />
+
+      {/* File context menu (right-click on text/generic file cards) */}
+      <ContextMenu
+        isOpen={!!fileContextMenu}
+        onClose={() => setFileContextMenu(null)}
+        items={fileMenuItems}
+        position={fileContextMenu}
       />
     </>
   );

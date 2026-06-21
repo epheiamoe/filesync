@@ -79,6 +79,16 @@ const translations: Translations = {
   'rooms.invalidShareString': { 'zh-CN': '无效的分享字符串或房间不匹配', 'en-US': 'Invalid share string or room mismatch' },
   'rooms.enterRoom': { 'zh-CN': '进入房间', 'en-US': 'Enter Room' },
   'rooms.joining': { 'zh-CN': '正在加入房间...', 'en-US': 'Joining room...' },
+  'rooms.oldFormatDeprecated': { 'zh-CN': '此分享字符串使用的是旧编码格式（已弃用）。请让房间创建者重新生成分享链接。', 'en-US': 'This share string uses a deprecated encoding format. Please ask the room creator to generate a new share link.' },
+  'rooms.simpleQR': { 'zh-CN': '简单 QR', 'en-US': 'Simple QR' },
+  'rooms.fullQR': { 'zh-CN': '完整 QR', 'en-US': 'Full QR' },
+  'rooms.simpleQrCode': { 'zh-CN': '仅包含分享密钥的简单 QR 码', 'en-US': 'Simple QR code with share key only' },
+  'rooms.fullQrCode': { 'zh-CN': '包含登录链接和临时凭证的完整 QR 码', 'en-US': 'Full QR code with login link and temp credential' },
+  'rooms.generateQuickQR': { 'zh-CN': '生成快捷 QR', 'en-US': 'Generate Quick QR' },
+  'rooms.quickQRExpires': { 'zh-CN': '临时凭证过期时间', 'en-US': 'Temp credential expires' },
+  'rooms.fullQRUrl': { 'zh-CN': '完整登录 URL', 'en-US': 'Full login URL' },
+  'rooms.scanQR': { 'zh-CN': '扫描 QR', 'en-US': 'Scan QR' },
+  'rooms.scanCameraDenied': { 'zh-CN': '无法访问摄像头。请授予摄像头权限或使用文件选择器。', 'en-US': 'Cannot access camera. Please grant permission or use file picker.' },
 
   // ---- Chat ----
   'chat.title': { 'zh-CN': '聊天', 'en-US': 'Chat' },
@@ -137,6 +147,9 @@ const translations: Translations = {
   'transfer.destroy1hr': { 'zh-CN': '1 小时', 'en-US': '1 hour' },
   'transfer.destroy6hr': { 'zh-CN': '6 小时', 'en-US': '6 hours' },
   'transfer.destroy24hr': { 'zh-CN': '24 小时', 'en-US': '24 hours' },
+  'transfer.hashMatch': { 'zh-CN': '文件完整性验证通过', 'en-US': 'File integrity verification passed' },
+  'transfer.hashMismatch': { 'zh-CN': '文件完整性验证失败 — 哈希值不匹配', 'en-US': 'File integrity check failed — Hash mismatch' },
+  'transfer.timeRemaining': { 'zh-CN': '剩余 {time}', 'en-US': '{time} remaining' },
 
   // ---- Admin ----
   'admin.title': { 'zh-CN': '管理面板', 'en-US': 'Admin Panel' },

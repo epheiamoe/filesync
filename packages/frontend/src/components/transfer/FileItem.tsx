@@ -15,11 +15,12 @@ import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { getRoomKey, decryptText, decryptFile } from '@/lib/crypto';
+import { getRoomKey, decryptText, decryptFile, computeFileHash } from '@/lib/crypto';
 import { Lightbox } from '@/components/ui/Lightbox';
 import { TextViewModal } from '@/components/ui/TextViewModal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { CountdownCircle } from '@/components/ui/CountdownCircle';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import { Spinner } from '@/components/ui/Spinner';
 import type { FileMetaDTO } from '@/lib/store';
@@ -121,6 +122,20 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
         const encryptedBuffer = await encryptedBlob.arrayBuffer();
         const decryptedBuffer = await decryptFile(key, encryptedBuffer);
         blob = new Blob([decryptedBuffer], { type: file.mime_type });
+
+        // Verify file integrity against stored hash
+        if (file.file_hash) {
+          try {
+            const computedHash = await computeFileHash(decryptedBuffer);
+            if (computedHash === file.file_hash) {
+              addToast({ type: 'success', message: t('transfer.hashMatch') });
+            } else {
+              addToast({ type: 'error', message: t('transfer.hashMismatch') });
+            }
+          } catch {
+            // Hash computation failed — silently continue with download
+          }
+        }
       } else {
         blob = await response.blob();
       }
@@ -337,9 +352,7 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
               </Badge>
             )}
             {expiresSoon && status === 'active' && (
-              <Badge variant="error" className="text-[10px] px-1.5 py-0.5">
-                {Math.ceil(expiresIn / 60000)}m
-              </Badge>
+              <CountdownCircle expiresAt={file.expires_at} size={20} strokeWidth={2} />
             )}
             <svg
               className={`w-4 h-4 text-muted-soft transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -373,6 +386,14 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
                   {new Date(file.expires_at).toLocaleString()}
                 </dd>
               </div>
+              {file.file_hash && (
+                <div className="col-span-2">
+                  <dt className="text-muted-soft text-[10px]">SHA-256</dt>
+                  <dd className="text-body text-[10px] font-mono truncate select-all">
+                    {file.file_hash}
+                  </dd>
+                </div>
+              )}
             </dl>
             <div className="flex gap-2 flex-wrap">
               {/* View button — for image, text, and PDF files */}

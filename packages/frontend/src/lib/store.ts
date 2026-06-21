@@ -32,6 +32,10 @@ export interface MessageDTO {
   device_label?: string;
   recalled_at?: string;
   created_at: string;
+  /** TTL in seconds — non-null for burn-after-read messages. */
+  ttl_seconds?: number;
+  /** ISO 8601 expiry timestamp — computed from ttl_seconds + created_at. */
+  expires_at?: string;
 }
 
 export interface FileMetaDTO {
@@ -47,6 +51,8 @@ export interface FileMetaDTO {
   recalled_at?: string;
   created_at: string;
   r2_key?: string;
+  /** SHA-256 hash of the original (decrypted) file content — for integrity verification. */
+  file_hash?: string;
 }
 
 export interface OnlineMember {
@@ -83,8 +89,6 @@ export interface AppState {
   addFile: (file: FileMetaDTO) => void;
   setFiles: (files: FileMetaDTO[]) => void;
   removeFile: (id: string) => void;
-  /** Remove a file from the list — same as removeFile, named for recall UX. */
-  recallFile: (id: string) => void;
   setOnlineMembers: (members: OnlineMember[]) => void;
   setDeviceLabel: (label: string) => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
@@ -191,7 +195,11 @@ export const useStore = create<AppState>((set) => ({
   },
 
   setMessages: (msgs) => {
-    set({ messages: msgs });
+    // Sort ASC by created_at to ensure oldest→top, newest→bottom in timeline
+    const sorted = [...msgs].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at),
+    );
+    set({ messages: sorted });
   },
 
   removeMessage: (id) => {
@@ -217,12 +225,6 @@ export const useStore = create<AppState>((set) => ({
   },
 
   removeFile: (id) => {
-    set((state) => ({
-      files: state.files.filter((f) => f.id !== id),
-    }));
-  },
-
-  recallFile: (id) => {
     set((state) => ({
       files: state.files.filter((f) => f.id !== id),
     }));

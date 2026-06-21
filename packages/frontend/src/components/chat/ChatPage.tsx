@@ -47,7 +47,11 @@ export function ChatPage({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use requestAnimationFrame to ensure React has flushed DOM updates
+    // before scrolling — prevents scroll-before-render race condition.
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
   }, []);
 
   // Scroll to bottom when new items arrive
