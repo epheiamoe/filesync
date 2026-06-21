@@ -21,7 +21,7 @@
  * - For MVP, no syntax highlighting — plain monospace text (bundle size concern)
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api, getApiBaseUrl } from '@/lib/api';
@@ -100,12 +100,28 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const isRecalled = !!file.recalled_at;
   const isPublic = file.visibility === 'public';
   /** True when expires_at is in the past and the file hasn't been recalled.
-   *  Used to show an "已过期" badge and disable action buttons. */
-  const isExpired = useMemo(() => {
+   *  Used to show an "已过期" badge and disable action buttons.
+   *  Uses a 1-second interval to re-evaluate so the badge appears
+   *  promptly when the expiry time arrives, without waiting for a
+   *  prop change or manual re-render. */
+  const [isExpired, setIsExpired] = useState(() => {
     if (isRecalled) return false;
     if (!file.expires_at) return false;
     return Date.now() > new Date(file.expires_at).getTime();
-  }, [file.expires_at, isRecalled]);
+  });
+
+  useEffect(() => {
+    if (isRecalled) return;
+    if (!file.expires_at) return;
+    if (isExpired) return; // already expired, stop checking
+    const interval = setInterval(() => {
+      if (new Date(file.expires_at!) < new Date()) {
+        setIsExpired(true);
+        clearInterval(interval);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [file.expires_at, isExpired, isRecalled]);
 
   // Track why we're destroying so handleDestroyed can pick the right toast message.
   const destroyReasonRef = useRef<'recall' | 'expired' | null>(null);

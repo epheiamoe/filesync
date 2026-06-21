@@ -311,6 +311,10 @@ export function RoomPage() {
           // Only remove if the feature flag is on; otherwise just show a toast.
           const payload = event.payload as { id: string; room_id: string };
           if (!payload.id) break;
+          // If CountdownCircle already removed this message (AUTO_DESTROY=true),
+          // skip the duplicate toast and remove call.
+          const msg = useStore.getState().messages.find(m => m.id === payload.id);
+          if (!msg) break;
           if (AUTO_DESTROY) {
             removeMessage(payload.id);
           }
@@ -323,6 +327,10 @@ export function RoomPage() {
         case 'file_expired': {
           const payload = event.payload as { id: string; room_id: string };
           if (!payload.id) break;
+          // If CountdownCircle already removed this file (AUTO_DESTROY=true),
+          // skip the duplicate toast and remove call.
+          const f = useStore.getState().files.find(f => f.id === payload.id);
+          if (!f) break;
           if (AUTO_DESTROY) {
             removeFile(payload.id);
           }
@@ -551,7 +559,6 @@ export function RoomPage() {
             ttl_seconds: uploadTTLMinutes * 60,
             created_at: new Date().toISOString(),
           };
-          console.log('[RoomPage] Optimistic addFile:', fileMeta.id, 'name:', file.name, 'public:', uploadIsPublic);
           addFile(fileMeta);
 
           setUploadTasks((prev) =>
