@@ -4,6 +4,9 @@
  * GET /api/rooms        → List rooms joined by current session
  * GET /api/rooms/:code  → Get room info including member count
  *
+ * Supports client_fingerprint query parameter for cross-session
+ * room membership tracking (Fix #3).
+ *
  * @module rooms/list
  */
 
@@ -14,12 +17,16 @@ import type { AppContext } from '../types';
  * GET /api/rooms
  * List rooms the current session has joined.
  * If admin session, also include rooms they created.
+ * Supports `client_fingerprint` query param for persistent client identification.
  */
 export async function handleListRooms(
   c: Context<AppContext>
 ): Promise<Response> {
   const sessionToken = c.get('sessionToken') || '';
   const session = c.get('session');
+
+  // Read optional client_fingerprint from query string
+  const clientFingerprint = c.req.query('client_fingerprint') || '';
 
   let rooms: Array<Record<string, unknown>>;
 
@@ -33,8 +40,47 @@ export async function handleListRooms(
        ORDER BY r.created_at DESC`
     ).bind(session.admin_id).all();
     rooms = result.results || [];
+  } else if (clientFingerprint) {
+    // Try dual lookup: first by client_fingerprint, then by session_id (union)
+    // This ensures rooms are found regardless of whether the fingerprint column exists yet
+    try {
+      const result = await c.env.DB.prepare(
+        `SELECT r.id, r.room_code, r.created_at,
+                (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) as member_count
+         FROM rooms r
+         INNER JOIN room_members rm ON rm.room_id = r.id
+         WHERE rm.client_fingerprint = ? AND r.deleted_at IS NULL
+         ORDER BY r.created_at DESC`
+      ).bind(clientFingerprint).all();
+
+      if (result.results && result.results.length > 0) {
+        rooms = result.results;
+      } else {
+        // Fallback to session_id lookup (backward compat)
+        const fallback = await c.env.DB.prepare(
+          `SELECT r.id, r.room_code, r.created_at,
+                  (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) as member_count
+           FROM rooms r
+           INNER JOIN room_members rm ON rm.room_id = r.id
+           WHERE rm.session_id = ? AND r.deleted_at IS NULL
+           ORDER BY r.created_at DESC`
+        ).bind(sessionToken).all();
+        rooms = fallback.results || [];
+      }
+    } catch {
+      // If client_fingerprint column doesn't exist, fall back to session_id
+      const fallback = await c.env.DB.prepare(
+        `SELECT r.id, r.room_code, r.created_at,
+                (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) as member_count
+         FROM rooms r
+         INNER JOIN room_members rm ON rm.room_id = r.id
+         WHERE rm.session_id = ? AND r.deleted_at IS NULL
+         ORDER BY r.created_at DESC`
+      ).bind(sessionToken).all();
+      rooms = fallback.results || [];
+    }
   } else {
-    // Regular session: list joined rooms
+    // Regular session: list joined rooms by session_id (legacy behavior)
     const result = await c.env.DB.prepare(
       `SELECT r.id, r.room_code, r.created_at,
               (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) as member_count

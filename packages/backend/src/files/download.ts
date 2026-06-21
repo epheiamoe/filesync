@@ -511,7 +511,11 @@ export async function handleFileRecall(c: Context<AppContext>): Promise<Response
 
     const recallEvent = {
       type: 'recall' as const,
-      payload: { file_id: fileId },
+      payload: {
+        file_id: fileId,
+        id: fileId,         // Backward compat: some clients check payload.id
+        message_id: '',     // Explicitly empty — this is a file recall, not message
+      },
       sender_session_id: sessionToken,
       device_label: '',
       timestamp: now,

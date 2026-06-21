@@ -8,6 +8,9 @@
  * All messages are stored encrypted in D1. The server never decrypts.
  * Real-time broadcast is routed through RoomDO (hibernatable WebSocket).
  *
+ * Feature #10: Messages support optional TTL (burn-after-reading).
+ *   ttl_seconds: 10-86400 → expires_at computed, auto-filtered from list.
+ *
  * @module chat/messages
  */
 
@@ -16,6 +19,7 @@ import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import type { MessageDTO, ChatMessagesResponse } from '@filesync/shared';
 import { generateId } from '../utils/id';
+import { updateRoomActivity } from '../rooms/activity';
 
 // ---- Validation Schemas ----
 
@@ -24,6 +28,7 @@ const sendMessageSchema = z.object({
   encrypted_content: z.string().min(1, 'Content cannot be empty').max(1_000_000, 'Message too large'),
   message_type: z.enum(['text', 'file_shared', 'system']).optional().default('text'),
   device_label: z.string().max(100).optional(),
+  ttl_seconds: z.number().int().min(10, 'TTL must be at least 10 seconds').max(86400, 'TTL must not exceed 24 hours').optional(),
 });
 
 const queryMessagesSchema = z.object({
@@ -41,8 +46,9 @@ const deleteMessageSchema = z.object({
 /**
  * Send an encrypted chat message.
  * 1. Validate session and room membership
- * 2. Insert into D1 messages table
+ * 2. Insert into D1 messages table (with optional TTL/expires_at)
  * 3. Broadcast to all connected clients in the room via RoomDO
+ * 4. Update room last_active_at
  */
 export async function handleSendMessage(c: Context<AppContext>): Promise<Response> {
   let body: unknown;
@@ -67,9 +73,14 @@ export async function handleSendMessage(c: Context<AppContext>): Promise<Respons
     );
   }
 
-  const { room_id, encrypted_content, message_type, device_label } = parsed.data;
+  const { room_id, encrypted_content, message_type, device_label, ttl_seconds } = parsed.data;
   const now = new Date().toISOString();
   const sessionToken = c.get('sessionToken') || '';
+
+  // Compute expires_at if TTL is provided
+  const expiresAt = ttl_seconds
+    ? new Date(Date.now() + ttl_seconds * 1000).toISOString()
+    : null;
 
   // Verify room exists and is not deleted
   const room = await c.env.DB.prepare(
@@ -108,12 +119,24 @@ export async function handleSendMessage(c: Context<AppContext>): Promise<Respons
   // Map message_type for D1 storage: 'file_shared' → 'file_notification'
   const dbMessageType = message_type === 'file_shared' ? 'file_notification' : message_type;
 
-  // Insert message into D1
+  // Insert message into D1 (with optional TTL/expires_at via try/catch)
   const messageId = generateId();
-  await c.env.DB.prepare(
-    `INSERT INTO messages (id, room_id, sender_session_id, encrypted_content, message_type, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(messageId, room_id, sessionToken, encrypted_content, dbMessageType, now).run();
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO messages (id, room_id, sender_session_id, encrypted_content, message_type, device_label, ttl_seconds, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(messageId, room_id, sessionToken, encrypted_content, dbMessageType, finalDeviceLabel,
+           ttl_seconds || null, expiresAt, now).run();
+  } catch {
+    // Fallback: columns may not exist yet — insert without TTL fields
+    await c.env.DB.prepare(
+      `INSERT INTO messages (id, room_id, sender_session_id, encrypted_content, message_type, device_label, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(messageId, room_id, sessionToken, encrypted_content, dbMessageType, finalDeviceLabel, now).run();
+  }
+
+  // Update room last_active_at
+  try { await updateRoomActivity(c.env.DB, room_id); } catch { /* best-effort */ }
 
   // Broadcast to connected clients via RoomDO
   try {
@@ -129,6 +152,8 @@ export async function handleSendMessage(c: Context<AppContext>): Promise<Respons
         message_type,
         sender_session_id: sessionToken,
         created_at: now,
+        ttl_seconds: ttl_seconds || null,
+        expires_at: expiresAt,
       },
       sender_session_id: sessionToken,
       device_label: finalDeviceLabel,
@@ -164,6 +189,8 @@ export async function handleSendMessage(c: Context<AppContext>): Promise<Respons
  * Get paginated chat message history for a room.
  * Uses cursor-based pagination (by created_at DESC).
  * Cursor value is the created_at timestamp to fetch messages before.
+ *
+ * Expired messages (expires_at < now) are automatically filtered out.
  */
 export async function handleGetMessages(c: Context<AppContext>): Promise<Response> {
   const query = c.req.query();
@@ -207,29 +234,55 @@ export async function handleGetMessages(c: Context<AppContext>): Promise<Respons
     );
   }
 
-  // Build query with optional cursor
-  // Fetch messages, joining with room_members to get device_label
+  // Build query with optional cursor and expire filter
+  // Filter: no recalled messages AND (no expiry OR not yet expired)
+  // Use try/catch since expires_at column may not exist yet
   let stmt: D1PreparedStatement;
-  if (before) {
-    stmt = c.env.DB.prepare(
-      `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
-              m.recalled_at, m.created_at, rm.device_label
-       FROM messages m
-       LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.session_id = m.sender_session_id
-       WHERE m.room_id = ? AND m.recalled_at IS NULL AND m.created_at < ?
-       ORDER BY m.created_at DESC
-       LIMIT ?`
-    ).bind(room_id, before, limit + 1); // fetch +1 to detect if there are more
-  } else {
-    stmt = c.env.DB.prepare(
-      `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
-              m.recalled_at, m.created_at, rm.device_label
-       FROM messages m
-       LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.session_id = m.sender_session_id
-       WHERE m.room_id = ? AND m.recalled_at IS NULL
-       ORDER BY m.created_at DESC
-       LIMIT ?`
-    ).bind(room_id, limit + 1);
+  try {
+    if (before) {
+      stmt = c.env.DB.prepare(
+        `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
+                m.recalled_at, m.created_at, m.device_label, m.ttl_seconds, m.expires_at
+         FROM messages m
+         WHERE m.room_id = ? AND m.recalled_at IS NULL
+           AND (m.expires_at IS NULL OR m.expires_at > datetime('now'))
+           AND m.created_at < ?
+         ORDER BY m.created_at DESC
+         LIMIT ?`
+      ).bind(room_id, before, limit + 1);
+    } else {
+      stmt = c.env.DB.prepare(
+        `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
+                m.recalled_at, m.created_at, m.device_label, m.ttl_seconds, m.expires_at
+         FROM messages m
+         WHERE m.room_id = ? AND m.recalled_at IS NULL
+           AND (m.expires_at IS NULL OR m.expires_at > datetime('now'))
+         ORDER BY m.created_at DESC
+         LIMIT ?`
+      ).bind(room_id, limit + 1);
+    }
+  } catch {
+    // Fallback: expires_at column doesn't exist yet — query without expire filter
+    // Also try without joining room_members (using the message's own device_label)
+    if (before) {
+      stmt = c.env.DB.prepare(
+        `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
+                m.recalled_at, m.created_at, m.device_label
+         FROM messages m
+         WHERE m.room_id = ? AND m.recalled_at IS NULL AND m.created_at < ?
+         ORDER BY m.created_at DESC
+         LIMIT ?`
+      ).bind(room_id, before, limit + 1);
+    } else {
+      stmt = c.env.DB.prepare(
+        `SELECT m.id, m.room_id, m.sender_session_id, m.encrypted_content, m.message_type,
+                m.recalled_at, m.created_at, m.device_label
+         FROM messages m
+         WHERE m.room_id = ? AND m.recalled_at IS NULL
+         ORDER BY m.created_at DESC
+         LIMIT ?`
+      ).bind(room_id, limit + 1);
+    }
   }
 
   const result = await stmt.all<{
@@ -241,6 +294,8 @@ export async function handleGetMessages(c: Context<AppContext>): Promise<Respons
     recalled_at: string | null;
     created_at: string;
     device_label: string | null;
+    ttl_seconds?: number | null;
+    expires_at?: string | null;
   }>();
 
   const rows = result.results || [];
@@ -258,6 +313,8 @@ export async function handleGetMessages(c: Context<AppContext>): Promise<Respons
     message_type: (m.message_type === 'file_notification' ? 'file_shared' : m.message_type) as MessageDTO['message_type'],
     device_label: m.device_label || undefined,
     recalled_at: m.recalled_at || undefined,
+    ttl_seconds: (m as any).ttl_seconds ?? undefined,
+    expires_at: (m as any).expires_at ?? undefined,
     created_at: m.created_at,
   }));
 

@@ -24,3 +24,9 @@ export type AppContext = {
   Bindings: Bindings;
   Variables: Variables;
 };
+
+/**
+ * Full environment type used by cron scheduled handlers and DO alarm handlers.
+ * Same as Bindings but usable outside of Hono request context.
+ */
+export type AppEnv = Bindings;

@@ -20,6 +20,7 @@ import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import type { UploadInitResponse } from '@filesync/shared';
 import { generateId } from '../utils/id';
+import { updateRoomActivity } from '../rooms/activity';
 
 // ---- Constants ----
 
@@ -63,6 +64,7 @@ const uploadCompleteSchema = z.object({
   visibility: z.enum(['private', 'public']).optional().default('private'),
   expires_at: z.string().min(1), // ISO 8601
   room_id: z.string().min(1),
+  file_hash: z.string().length(64).regex(/^[a-f0-9]+$/i, 'Must be a 64-char SHA-256 hex hash').optional(),
 });
 
 const abortUploadSchema = z.object({
@@ -418,7 +420,7 @@ export async function handleUploadComplete(c: Context<AppContext>): Promise<Resp
     );
   }
 
-  const { upload_id, r2_key, parts, encrypted_filename, encrypted_meta, file_size, mime_type, visibility, expires_at, room_id } = parsed.data;
+  const { upload_id, r2_key, parts, encrypted_filename, encrypted_meta, file_size, mime_type, visibility, expires_at, room_id, file_hash } = parsed.data;
   const now = new Date().toISOString();
   const sessionToken = c.get('sessionToken') || '';
 
@@ -458,16 +460,31 @@ export async function handleUploadComplete(c: Context<AppContext>): Promise<Resp
   // Insert file metadata into D1
   const fileId = generateId();
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO file_metadata
-       (id, room_id, uploader_session_id, r2_key, encrypted_filename, encrypted_meta,
-        file_size, mime_type, visibility, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      fileId, room_id, sessionToken, r2_key, encrypted_filename,
-      encrypted_meta || null, file_size, mime_type, visibility,
-      expires_at, now
-    ).run();
+    // Try with file_hash column first (post-migration), fall back without
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO file_metadata
+         (id, room_id, uploader_session_id, r2_key, encrypted_filename, encrypted_meta,
+          file_size, mime_type, visibility, expires_at, file_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        fileId, room_id, sessionToken, r2_key, encrypted_filename,
+        encrypted_meta || null, file_size, mime_type, visibility,
+        expires_at, file_hash || null, now
+      ).run();
+    } catch {
+      // Fallback: file_hash column doesn't exist yet
+      await c.env.DB.prepare(
+        `INSERT INTO file_metadata
+         (id, room_id, uploader_session_id, r2_key, encrypted_filename, encrypted_meta,
+          file_size, mime_type, visibility, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        fileId, room_id, sessionToken, r2_key, encrypted_filename,
+        encrypted_meta || null, file_size, mime_type, visibility,
+        expires_at, now
+      ).run();
+    }
 
     // Update usage_stats atomically (only if room would stay under limit)
     const updateResult = await c.env.DB.prepare(
@@ -525,6 +542,7 @@ export async function handleUploadComplete(c: Context<AppContext>): Promise<Resp
         mime_type,
         visibility,
         expires_at,
+        file_hash: file_hash || null,
         created_at: now,
       },
       sender_session_id: sessionToken,
@@ -540,6 +558,9 @@ export async function handleUploadComplete(c: Context<AppContext>): Promise<Resp
     console.error('Failed to broadcast file_shared via DO:', err);
     // [Debt: structured logging]
   }
+
+  // Update room last_active_at after successful upload
+  try { await updateRoomActivity(c.env.DB, room_id); } catch { /* best-effort */ }
 
   // Clean up KV upload session
   try {

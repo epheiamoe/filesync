@@ -36,7 +36,6 @@ export interface LoginRequest {
 export interface LoginResponse {
   token: string;
   scope: string;
-  account_type: string;
   expires_at: string;
 }
 
@@ -62,6 +61,7 @@ export interface JoinRoomRequest {
   room_code: string;
   key_hash: string;
   device_label?: string;
+  client_fingerprint?: string; // Persistent client ID from localStorage for cross-session room tracking
 }
 
 export interface JoinRoomResponse {
@@ -137,6 +137,10 @@ export interface MessageDTO {
   message_type: MessageType;
   device_label?: string;
   recalled_at?: string;
+  /** TTL in seconds from creation. null = permanent message. */
+  ttl_seconds?: number;
+  /** ISO 8601 expiry timestamp, computed as created_at + ttl_seconds. null = never expires. */
+  expires_at?: string;
   created_at: string;
 }
 
@@ -147,6 +151,8 @@ export interface SendMessageRequest {
   encrypted_content: string;
   message_type?: MessageType;
   device_label?: string;
+  /** TTL in seconds (10s to 24h). Message auto-expires after this duration. */
+  ttl_seconds?: number;
 }
 
 export interface SendMessageResponse {
@@ -201,6 +207,8 @@ export interface UploadCompleteRequest {
   visibility?: FileVisibility;
   expires_at: string;
   room_id: string;
+  /** SHA-256 hex hash of the original (unencrypted) file for integrity verification. */
+  file_hash?: string;
 }
 
 export interface UploadCompleteResponse {
@@ -228,6 +236,8 @@ export interface FileMetaDTO {
   recalled_at?: string;
   created_at: string;
   r2_key?: string;
+  /** SHA-256 hex hash of the original (unencrypted) file content. null for legacy files. */
+  file_hash?: string;
 }
 
 export interface FileListResponse {
@@ -271,6 +281,23 @@ export interface OnlineMember {
 
 export interface WsTicketResponse {
   ticket: string;
+}
+
+// ---- Admin Config ----
+
+export interface AdminConfigResponse {
+  key: string;
+  value: string | null;
+}
+
+export interface RoomMemberDTO {
+  id: string;
+  room_id: string;
+  session_id: string;
+  device_label?: string;
+  /** Persistent client fingerprint for cross-session identification. */
+  client_fingerprint?: string;
+  joined_at: string;
 }
 
 // ---- Crypto Shared (for client reference) ----

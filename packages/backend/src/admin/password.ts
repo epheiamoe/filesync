@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import { hashPassword, verifyPassword } from '../crypto/hash';
 
@@ -15,7 +16,7 @@ const passwordSchema = z.object({
   new_password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
-export async function handleChangePassword(c: AppContext): Promise<Response> {
+export async function handleChangePassword(c: Context<AppContext>): Promise<Response> {
   const session = c.get('session');
   if (!session || !session.scope?.includes('admin')) {
     return c.json({ success: false, error: 'Admin access required', code: 'FORBIDDEN' }, 403);

@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(room_code);
 CREATE INDEX IF NOT EXISTS idx_rooms_admin ON rooms(admin_id);
 
+-- Migration: Add last_active_at for room activity tracking (Feature #12)
+-- SQLite doesn't support ADD COLUMN IF NOT EXISTS, so check manually or run once
+-- ALTER TABLE rooms ADD COLUMN last_active_at TEXT;
+-- ALTER TABLE works idempotently in D1 — if column exists, it errors but is safe to retry.
+
 -- ============================================================
 -- Table: room_members
 -- 记录谁加入了哪个房间。session_id 是客户端生成的匿名标识
@@ -42,6 +47,10 @@ CREATE TABLE IF NOT EXISTS room_members (
 );
 CREATE INDEX IF NOT EXISTS idx_members_room ON room_members(room_id);
 CREATE INDEX IF NOT EXISTS idx_members_session ON room_members(session_id);
+
+-- Migration: Add client_fingerprint for cross-session room tracking (Fix #3)
+-- ALTER TABLE room_members ADD COLUMN client_fingerprint TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_members_fingerprint ON room_members(client_fingerprint);
 
 -- ============================================================
 -- Table: messages
@@ -59,6 +68,11 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_room_time ON messages(room_id, created_at DESC);
+
+-- Migration: Add TTL and expiry for burn-after-reading messages (Feature #10)
+-- ALTER TABLE messages ADD COLUMN ttl_seconds INTEGER DEFAULT NULL;
+-- ALTER TABLE messages ADD COLUMN expires_at TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages(expires_at);
 
 -- ============================================================
 -- Table: file_metadata
@@ -82,6 +96,9 @@ CREATE TABLE IF NOT EXISTS file_metadata (
 CREATE INDEX IF NOT EXISTS idx_files_room ON file_metadata(room_id);
 CREATE INDEX IF NOT EXISTS idx_files_expires ON file_metadata(expires_at);
 CREATE INDEX IF NOT EXISTS idx_files_r2key ON file_metadata(r2_key);
+
+-- Migration: Add file_hash for integrity verification (Feature #8)
+-- ALTER TABLE file_metadata ADD COLUMN file_hash TEXT;
 
 -- ============================================================
 -- Table: usage_stats
@@ -112,3 +129,24 @@ CREATE TABLE IF NOT EXISTS credential_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_cred_type ON credential_audit(type);
 CREATE INDEX IF NOT EXISTS idx_cred_expires ON credential_audit(expires_at);
+
+-- ============================================================
+-- Migration Scripts (idempotent — safe to run multiple times)
+-- Run these via `npx wrangler d1 execute filesync-db --file=db/schema.sql`
+-- ============================================================
+
+-- Feature #12: Room activity tracking for auto-destroy
+-- ALTER TABLE rooms ADD COLUMN last_active_at TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_rooms_last_active ON rooms(last_active_at);
+
+-- Fix #3: Client fingerprint for cross-session room membership
+-- ALTER TABLE room_members ADD COLUMN client_fingerprint TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_members_fingerprint ON room_members(client_fingerprint);
+
+-- Feature #10: Burn-after-reading message TTL
+-- ALTER TABLE messages ADD COLUMN ttl_seconds INTEGER DEFAULT NULL;
+-- ALTER TABLE messages ADD COLUMN expires_at TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages(expires_at);
+
+-- Feature #8: File integrity hash
+-- ALTER TABLE file_metadata ADD COLUMN file_hash TEXT;

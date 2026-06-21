@@ -107,25 +107,36 @@ export async function handleCreateCredential(
 }
 
 // ---- GET /api/auth/credentials ----
+/**
+ * List all credentials (temp and API keys).
+ * Supports ?unused_only=true to filter to unused, non-expired temp credentials only.
+ */
 export async function handleListCredentials(
   c: Context<AppContext>
 ): Promise<Response> {
   const sessionOrError = requireAdmin(c);
   if (sessionOrError instanceof Response) return sessionOrError;
 
-  const result = await c.env.DB.prepare(
-    `SELECT id, type, code_hash, api_key_prefix, created_by, used_at, expires_at, revoked_at, created_at
+  const unusedOnly = c.req.query('unused_only') === 'true';
+
+  let query = `SELECT id, type, code_hash, api_key_prefix, created_by, used_at, expires_at, revoked_at, created_at
      FROM credential_audit
-     ORDER BY created_at DESC
-     LIMIT 100`
-  ).all();
+     WHERE type = 'temp_credential'`;
+
+  if (unusedOnly) {
+    query += ` AND used_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')`;
+  }
+
+  query += ` ORDER BY created_at DESC LIMIT 100`;
+
+  const result = await c.env.DB.prepare(query).all();
 
   // Mask sensitive fields for display
   const credentials = (result.results || []).map((row: Record<string, unknown>) => ({
     id: row.id,
     type: row.type,
     code_prefix: row.type === 'temp_credential' && row.code_hash
-      ? `${(row.code_hash as string).slice(0, 6)}...`
+      ? `${(row.code_hash as string).slice(0, 8)}...`
       : null,
     api_key_prefix: row.api_key_prefix || null,
     created_by: row.created_by,

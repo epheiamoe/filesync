@@ -2,12 +2,13 @@
  * Room join handler.
  *
  * POST /api/rooms/join
- * Accepts { room_code, key_hash, device_label? }
+ * Accepts { room_code, key_hash, device_label?, client_fingerprint? }
  *
  * - Look up room by code → verify not deleted
  * - Verify key_hash matches stored hash
- * - Add member to room_members
+ * - Add member to room_members (with optional client_fingerprint)
  * - Parse device_label from User-Agent if not provided
+ * - Update room last_active_at
  *
  * @module rooms/join
  */
@@ -16,11 +17,13 @@ import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import { generateId } from '../utils/id';
+import { updateRoomActivity } from './activity';
 
 const joinRoomSchema = z.object({
   room_code: z.string().length(4).regex(/^[0-9]{4}$/, 'Must be 4-digit code'),
   key_hash: z.string().min(64).max(128).regex(/^[a-f0-9]+$/i, 'Must be a hex string'),
   device_label: z.string().max(100).optional(),
+  client_fingerprint: z.string().min(1).max(64).optional(), // Persistent client ID for cross-session tracking
 });
 
 /**
@@ -75,7 +78,7 @@ export async function handleJoinRoom(
     );
   }
 
-  const { room_code, key_hash, device_label } = parsed.data;
+  const { room_code, key_hash, device_label, client_fingerprint } = parsed.data;
   const now = new Date().toISOString();
 
   // Look up room by code
@@ -123,6 +126,20 @@ export async function handleJoinRoom(
   ).bind(room.id, sessionToken).first();
 
   if (existing) {
+    // Update client_fingerprint if provided and not already set
+    if (client_fingerprint) {
+      try {
+        await c.env.DB.prepare(
+          `UPDATE room_members SET client_fingerprint = ? WHERE room_id = ? AND session_id = ? AND client_fingerprint IS NULL`
+        ).bind(client_fingerprint, room.id, sessionToken).run();
+      } catch {
+        // Best effort — missing column is OK
+      }
+    }
+
+    // Update room activity even for re-join
+    try { await updateRoomActivity(c.env.DB, room.id); } catch { /* best-effort */ }
+
     return c.json(
       {
         success: true,
@@ -137,10 +154,22 @@ export async function handleJoinRoom(
 
   // Add member
   const memberId = generateId();
-  await c.env.DB.prepare(
-    `INSERT INTO room_members (id, room_id, session_id, device_label, joined_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(memberId, room.id, sessionToken, finalDeviceLabel, now).run();
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO room_members (id, room_id, session_id, device_label, client_fingerprint, joined_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(memberId, room.id, sessionToken, finalDeviceLabel,
+           client_fingerprint || null, now).run();
+  } catch {
+    // Fallback: if client_fingerprint column doesn't exist yet, insert without it
+    await c.env.DB.prepare(
+      `INSERT INTO room_members (id, room_id, session_id, device_label, joined_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(memberId, room.id, sessionToken, finalDeviceLabel, now).run();
+  }
+
+  // Update room last_active_at
+  try { await updateRoomActivity(c.env.DB, room.id); } catch { /* best-effort */ }
 
   return c.json(
     {

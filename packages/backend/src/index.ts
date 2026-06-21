@@ -6,12 +6,14 @@
  *   - Auth middleware (extracts Bearer token, validates against KV, attaches session)
  *   - Route modules for auth, rooms, files, chat, admin, and WebSocket
  *
+ * Also exports a `scheduled` handler for cron-based cleanup (Feature #11).
+ *
  * @module index
  */
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { AppContext } from './types';
+import type { AppContext, AppEnv } from './types';
 
 // ---- Auth ----
 import { handleLogin } from './auth/login';
@@ -37,6 +39,10 @@ import { handleWsTicket, handleWsConnect } from './ws/handler';
 import { handleAdminStats, handleAdminRooms } from './admin/stats';
 import { handleDestroyRoom, handleDestroyAllRooms } from './admin/rooms';
 import { handleChangePassword } from './admin/password';
+import { handleGetConfig, handlePutConfig } from './admin/config';
+
+// ---- Cron ----
+import { handleScheduled } from './cron/cleanup';
 
 // ---- DO (must be exported for wrangler) ----
 export { RoomDO } from './do/room';
@@ -173,6 +179,9 @@ app.get('/api/ws/connect', handleWsConnect);
 // ---- Admin Routes ----
 app.get('/api/admin/stats', handleAdminStats);
 app.get('/api/admin/rooms', handleAdminRooms);
+// Admin config (Feature #12 — KV-backed config for room TTL etc.)
+app.get('/api/admin/config/:key', handleGetConfig);
+app.put('/api/admin/config/:key', handlePutConfig);
 // Register DELETE /api/admin/rooms BEFORE /api/admin/rooms/:code
 // to ensure the literal path is matched before the parameterized one
 app.delete('/api/admin/rooms', handleDestroyAllRooms);
@@ -205,5 +214,25 @@ app.onError((err, c) => {
   );
 });
 
-// ---- Export ----
-export default app;
+// ---- Worker Export (fetch + scheduled) ----
+// Cloudflare Workers support exporting an object with both fetch and scheduled.
+// The Hono app's fetch method handles all HTTP requests.
+// The scheduled handler runs hourly cleanup via Cron Triggers.
+export default {
+  fetch: app.fetch,
+  async scheduled(
+    controller: ScheduledController,
+    env: AppEnv,
+    _ctx: ExecutionContext
+  ): Promise<void> {
+    switch (controller.cron) {
+      case '0 * * * *': {
+        const result = await handleScheduled(env);
+        console.log('[cron] cleanup complete:', JSON.stringify(result));
+        break;
+      }
+      default:
+        console.log('[cron] unhandled cron schedule:', controller.cron);
+    }
+  },
+};
