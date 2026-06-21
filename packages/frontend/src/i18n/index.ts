@@ -80,6 +80,8 @@ const translations: Translations = {
   'rooms.enterRoom': { 'zh-CN': '进入房间', 'en-US': 'Enter Room' },
   'rooms.joining': { 'zh-CN': '正在加入房间...', 'en-US': 'Joining room...' },
   'rooms.oldFormatDeprecated': { 'zh-CN': '此分享字符串使用的是旧编码格式（已弃用）。请让房间创建者重新生成分享链接。', 'en-US': 'This share string uses a deprecated encoding format. Please ask the room creator to generate a new share link.' },
+  'rooms.wsConnected': { 'zh-CN': '实时连接已建立', 'en-US': 'Real-time connection established' },
+  'rooms.wsDisconnected': { 'zh-CN': '实时连接已断开', 'en-US': 'Real-time connection lost' },
   'rooms.simpleQR': { 'zh-CN': '简单 QR', 'en-US': 'Simple QR' },
   'rooms.fullQR': { 'zh-CN': '完整 QR', 'en-US': 'Full QR' },
   'rooms.simpleQrCode': { 'zh-CN': '仅包含分享密钥的简单 QR 码', 'en-US': 'Simple QR code with share key only' },

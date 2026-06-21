@@ -77,6 +77,7 @@ export function RoomPage() {
   const [roomReady, setRoomReady] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [fullQrUrl, setFullQrUrl] = useState<string>('');
+  const [wsConnected, setWsConnected] = useState(false);
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -233,8 +234,13 @@ export function RoomPage() {
     if (!code || !session?.token) return;
     if (!roomReady) return;
 
-    const socket = new RoomSocket(code, session.token);
+    const deviceLabel = parseDeviceLabel();
+    const socket = new RoomSocket(code, session.token, session.token, deviceLabel);
     setWs(socket);
+
+    socket.onConnectionChange((connected) => {
+      setWsConnected(connected);
+    });
 
     socket.onMessage((event) => {
       switch (event.type) {
@@ -261,6 +267,39 @@ export function RoomPage() {
           // If room_id is missing from broadcast, inject from current room context
           if (!file.room_id) file.room_id = currentRoom?.id || '';
           addFile(file);
+          break;
+        }
+        case 'member_join': {
+          // Incrementally add a member to the online list.
+          // RoomDO broadcasts this on subscribe (including to the joiner themselves).
+          const payload = event.payload as { session_id: string; device_label: string };
+          if (!payload.session_id) break;
+          useStore.setState((state) => {
+            if (state.onlineMembers.some((m) => m.session_id === payload.session_id)) {
+              return state;
+            }
+            return {
+              onlineMembers: [
+                ...state.onlineMembers,
+                {
+                  session_id: payload.session_id,
+                  device_label: payload.device_label || 'Unknown',
+                  display_label: payload.device_label || 'Unknown',
+                },
+              ],
+            };
+          });
+          break;
+        }
+        case 'member_leave': {
+          // Remove a member from the online list when they disconnect.
+          const payload = event.payload as { session_id: string };
+          if (!payload.session_id) break;
+          useStore.setState((state) => ({
+            onlineMembers: state.onlineMembers.filter(
+              (m) => m.session_id !== payload.session_id,
+            ),
+          }));
           break;
         }
       }
@@ -463,7 +502,7 @@ export function RoomPage() {
         }
       }
     },
-    [code, currentRoom, uploadTTLMinutes, uploadIsPublic],
+    [code, currentRoom, session, uploadTTLMinutes, uploadIsPublic, addFile],
   );
 
   // ---- File input ref for the shared input bar ----
@@ -616,12 +655,18 @@ export function RoomPage() {
             <code className="text-display-sm font-display text-ink">
               {currentRoom.roomCode}
             </code>
-            {onlineMembers.length > 0 && (
-              <span className="flex items-center gap-1.5 text-xs text-success">
-                <span className="w-2 h-2 rounded-full bg-success" />
-                {onlineMembers.length} {t('rooms.online')}
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 text-xs">
+              <span
+                className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-success animate-pulse' : 'bg-error'}`}
+                aria-label={wsConnected ? t('rooms.wsConnected') : t('rooms.wsDisconnected')}
+                role="status"
+              />
+              {onlineMembers.length > 0 && (
+                <span className="text-success">
+                  {onlineMembers.length} {t('rooms.online')}
+                </span>
+              )}
+            </span>
             {(() => {
               const key = getRoomKey(code!);
               if (!key) return null;

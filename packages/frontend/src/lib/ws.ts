@@ -25,6 +25,8 @@ export class RoomSocket {
   private ws: WebSocket | null = null;
   private roomCode: string;
   private token: string;
+  private sessionId: string;
+  private deviceLabel: string;
   private messageHandlers: WsEventHandler[] = [];
   private memberHandlers: MemberUpdateHandler[] = [];
   private connectionHandlers: ConnectionHandler[] = [];
@@ -34,9 +36,11 @@ export class RoomSocket {
   private intentionalClose = false;
   private connected = false;
 
-  constructor(roomCode: string, token: string) {
+  constructor(roomCode: string, token: string, sessionId?: string, deviceLabel?: string) {
     this.roomCode = roomCode;
     this.token = token;
+    this.sessionId = sessionId || token;
+    this.deviceLabel = deviceLabel || 'Unknown';
   }
 
   /**
@@ -60,6 +64,14 @@ export class RoomSocket {
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.connected = true;
+        // Send subscribe to trigger member_join broadcast in RoomDO.
+        // The DO expects { event: 'subscribe', roomCode, sessionId, deviceLabel }.
+        this.send({
+          event: 'subscribe',
+          roomCode: this.roomCode,
+          sessionId: this.sessionId,
+          deviceLabel: this.deviceLabel,
+        });
         this.connectionHandlers.forEach((h) => h(true));
       };
 
@@ -140,12 +152,20 @@ export class RoomSocket {
   }
 
   /**
+   * Send arbitrary JSON data over the WebSocket.
+   * Used for subscribe events and future client→DO messaging.
+   */
+  send(data: Record<string, unknown>): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  /**
    * Send a ping to keep the connection alive.
    */
   sendPing(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ event: 'ping' }));
-    }
+    this.send({ event: 'ping' });
   }
 
   /**
@@ -187,6 +207,8 @@ export class RoomSocket {
           message_type: rawPayload.message_type || 'text',
           device_label: rawPayload.device_label || deviceLabel,
           created_at: rawPayload.created_at || timestamp,
+          ttl_seconds: rawPayload.ttl_seconds,
+          expires_at: rawPayload.expires_at,
         };
         const wsMsg: WsMessage = {
           type: 'chat',
@@ -212,6 +234,7 @@ export class RoomSocket {
           visibility: rawPayload.visibility,
           expires_at: rawPayload.expires_at,
           created_at: rawPayload.created_at || timestamp,
+          file_hash: rawPayload.file_hash,
         };
         const wsMsg: WsMessage = {
           type: 'file_shared',
@@ -248,11 +271,31 @@ export class RoomSocket {
         this.memberHandlers.forEach((h) => h(members));
         break;
       }
+      case 'member_join':
+      case 'member_leave': {
+        // Route to messageHandlers so RoomPage can incrementally update
+        // the online members list. The RoomDO broadcasts these on
+        // subscribe (join) and disconnect (leave).
+        const wsMsg: WsMessage = {
+          type: event as 'member_join' | 'member_leave',
+          payload: {
+            session_id: rawPayload?.session_id || '',
+            device_label: rawPayload?.device_label || 'Unknown',
+          },
+          sender_session_id: senderSessionId,
+          device_label: deviceLabel,
+          timestamp,
+        };
+        this.messageHandlers.forEach((h) => h(wsMsg));
+        break;
+      }
       case 'pong':
         // Heartbeat response — no action needed
         break;
       default:
-        // Unknown event type — ignore
+        // Unknown event type — log for debugging; don't silently swallow
+        // critical DO broadcasts (e.g., member_join, member_leave, system).
+        console.warn('[RoomSocket] Unknown event type:', event, raw);
         break;
     }
   }
