@@ -343,7 +343,7 @@ export function RoomPage() {
 
   // ---- Shared Send Handler (BUG 1 fix: optimistic local add) ----
 
-  const handleSend = useCallback(async (text: string): Promise<boolean> => {
+  const handleSend = useCallback(async (text: string, ttlMinutes?: number): Promise<boolean> => {
     if (!text.trim() || !code || !currentRoom || !session) return false;
     setSending(true);
 
@@ -354,7 +354,16 @@ export function RoomPage() {
       const encrypted = await encryptText(key, text);
       const deviceLabel = parseDeviceLabel();
 
-      const res = await api.sendMessage(currentRoom.id, encrypted, 'text', deviceLabel);
+      // Compute TTL if provided
+      const ttlSeconds = ttlMinutes ? ttlMinutes * 60 : undefined;
+
+      const res = await api.sendMessage(
+        currentRoom.id,
+        encrypted,
+        'text',
+        deviceLabel,
+        ttlSeconds,
+      );
 
       // Add message to local store immediately.
       // Uses the server-assigned message_id so that when the WebSocket
@@ -366,6 +375,10 @@ export function RoomPage() {
         encrypted_content: encrypted,
         message_type: 'text',
         device_label: deviceLabel,
+        ttl_seconds: ttlSeconds,
+        expires_at: ttlSeconds
+          ? new Date(Date.now() + ttlSeconds * 1000).toISOString()
+          : undefined,
         created_at: res.created_at,
       };
       addMessage(newMsg);
@@ -421,28 +434,42 @@ export function RoomPage() {
             prev.map((t) => (t.id === taskId ? { ...t, status: 'uploading' } : t)),
           );
 
-          const encrypted = await encryptFile(key, fileBuffer);
-          const encryptedFilename = await encryptText(key, file.name);
-
           const chunkSize = file.size <= 100 * 1024 * 1024 ? CHUNK_SIZE_SMALL : CHUNK_SIZE_LARGE;
           const expiresAt = new Date(Date.now() + uploadTTLMinutes * 60 * 1000).toISOString();
           const visibility = uploadIsPublic ? 'public' : 'private';
+
+          // For public files, skip client-side encryption — the raw file is uploaded
+          // directly so external recipients can access it without the room key.
+          // For private files, encrypt both content and filename.
+          let uploadBuffer: ArrayBuffer;
+          let storedFilename: string;
+          let originalFilename: string;
+          if (uploadIsPublic) {
+            uploadBuffer = fileBuffer; // raw, unencrypted
+            storedFilename = file.name; // original filename — not encrypted
+            originalFilename = file.name;
+          } else {
+            uploadBuffer = await encryptFile(key, fileBuffer);
+            storedFilename = await encryptText(key, file.name);
+            originalFilename = file.name;
+          }
+
           const initRes = await api.initUpload(
             file.name,
-            encrypted.byteLength,
+            uploadBuffer.byteLength,
             chunkSize,
             currentRoom.id,
             visibility,
             expiresAt,
           );
 
-          const totalChunks = Math.ceil(encrypted.byteLength / chunkSize);
+          const totalChunks = Math.ceil(uploadBuffer.byteLength / chunkSize);
           const parts: { etag: string; part_number: number }[] = [];
 
           for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
-            const end = Math.min(start + chunkSize, encrypted.byteLength);
-            const chunk = encrypted.slice(start, end);
+            const end = Math.min(start + chunkSize, uploadBuffer.byteLength);
+            const chunk = uploadBuffer.slice(start, end);
             const partRes = await api.uploadPart(initRes.upload_id, i + 1, chunk);
             parts.push({ etag: partRes.etag, part_number: partRes.part_number });
 
@@ -459,8 +486,8 @@ export function RoomPage() {
             initRes.upload_id,
             initRes.r2_key,
             parts,
-            encryptedFilename,
-            encrypted.byteLength,
+            storedFilename,
+            uploadBuffer.byteLength,
             file.type || 'application/octet-stream',
             visibility,
             expiresAt,
@@ -472,14 +499,16 @@ export function RoomPage() {
             id: completeRes.file_id,
             room_id: currentRoom.id,
             uploader_session_id: session?.token || '',
-            encrypted_filename: encryptedFilename,
+            encrypted_filename: storedFilename,
             encrypted_meta: '',
-            file_size: encrypted.byteLength,
+            file_size: uploadBuffer.byteLength,
             mime_type: file.type || 'application/octet-stream',
             visibility: visibility as FileMetaDTO['visibility'],
             expires_at: expiresAt,
+            ttl_seconds: uploadTTLMinutes * 60,
             created_at: new Date().toISOString(),
           };
+          console.log('[RoomPage] Optimistic addFile:', fileMeta.id, 'name:', file.name, 'public:', uploadIsPublic);
           addFile(fileMeta);
 
           setUploadTasks((prev) =>

@@ -115,6 +115,11 @@ const translations: Translations = {
   'chat.contentCopied': { 'zh-CN': '内容已复制', 'en-US': 'Content copied' },
   'chat.fileUnavailable': { 'zh-CN': '文件不可用', 'en-US': 'File unavailable' },
   'chat.sendFailed': { 'zh-CN': '消息发送失败', 'en-US': 'Message send failed' },
+  'chat.public': { 'zh-CN': '公开', 'en-US': 'Public' },
+  'chat.newMessages': { 'zh-CN': '条新消息', 'en-US': ' new messages' },
+  'chat.shareDialog': { 'zh-CN': '分享文件', 'en-US': 'Share File' },
+  'chat.downloadLink': { 'zh-CN': '下载链接', 'en-US': 'Download Link' },
+  'chat.previewLink': { 'zh-CN': '预览链接', 'en-US': 'Preview Link' },
 
   // ---- Transfer ----
   'transfer.title': { 'zh-CN': '传输', 'en-US': 'Transfer' },
@@ -152,6 +157,12 @@ const translations: Translations = {
   'transfer.hashMatch': { 'zh-CN': '文件完整性验证通过', 'en-US': 'File integrity verification passed' },
   'transfer.hashMismatch': { 'zh-CN': '文件完整性验证失败 — 哈希值不匹配', 'en-US': 'File integrity check failed — Hash mismatch' },
   'transfer.timeRemaining': { 'zh-CN': '剩余 {time}', 'en-US': '{time} remaining' },
+  'public.download': { 'zh-CN': '下载', 'en-US': 'Download' },
+  'public.preview': { 'zh-CN': '预览', 'en-US': 'Preview' },
+  'public.fileShared': { 'zh-CN': '文件已分享', 'en-US': 'File Shared' },
+  'public.expiredTitle': { 'zh-CN': '文件已过期', 'en-US': 'File Expired' },
+  'public.notFound': { 'zh-CN': '文件不存在', 'en-US': 'File Not Found' },
+  'public.backHome': { 'zh-CN': '返回首页', 'en-US': 'Back to Home' },
 
   // ---- Admin ----
   'admin.title': { 'zh-CN': '管理面板', 'en-US': 'Admin Panel' },

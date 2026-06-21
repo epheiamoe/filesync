@@ -352,7 +352,12 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
               </Badge>
             )}
             {expiresSoon && status === 'active' && (
-              <CountdownCircle expiresAt={file.expires_at} size={20} strokeWidth={2} />
+              <CountdownCircle
+                expiresAt={file.expires_at}
+                ttlSeconds={file.ttl_seconds}
+                size={20}
+                strokeWidth={2}
+              />
             )}
             <svg
               className={`w-4 h-4 text-muted-soft transition-transform ${expanded ? 'rotate-180' : ''}`}

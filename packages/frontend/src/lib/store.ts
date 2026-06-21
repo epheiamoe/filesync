@@ -48,6 +48,8 @@ export interface FileMetaDTO {
   mime_type: string;
   visibility: 'private' | 'public';
   expires_at: string;
+  /** TTL in seconds — for accurate countdown circle percentage. */
+  ttl_seconds?: number;
   recalled_at?: string;
   created_at: string;
   r2_key?: string;

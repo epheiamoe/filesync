@@ -24,10 +24,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
-import { api } from '@/lib/api';
+import { api, getApiBaseUrl } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { getRoomKey, decryptText, decryptFile } from '@/lib/crypto';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { DestroyAnimation } from '@/components/ui/DestroyAnimation';
 import { CountdownCircle } from '@/components/ui/CountdownCircle';
 import { Lightbox } from '@/components/ui/Lightbox';
@@ -95,9 +96,20 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const isOwnFile = file.uploader_session_id === session?.token;
   const isRecalled = !!file.recalled_at;
   const isPublic = file.visibility === 'public';
-  const publicUrl = isPublic
-    ? `${window.location.origin}/api/files/${file.id}/public`
+  // Download link: served by the API (filesync-api.epheia.workers.dev/api/... in prod, /api/... in dev)
+  const downloadUrl = isPublic
+    ? `${getApiBaseUrl()}/files/${file.id}/public?download=1`
     : '';
+  // Preview link: the isolated frontend viewer page
+  const previewUrl = isPublic
+    ? `${window.location.origin}/view/${file.id}`
+    : '';
+
+  // Share dialog state
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState('');
+  const downloadQrRef = useRef<HTMLCanvasElement>(null);
+  const previewQrRef = useRef<HTMLCanvasElement>(null);
 
   // Decrypt filename on mount
   useEffect(() => {
@@ -230,6 +242,49 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     addToast({ type: 'info', message: t('chat.recalled') });
   }, [file.id, removeFile, addToast]);
 
+  // Share dialog handlers
+  const handleOpenShare = useCallback(() => {
+    setShareOpen(true);
+  }, []);
+
+  const handleCloseShare = useCallback(() => {
+    setShareOpen(false);
+    setShareCopied('');
+  }, []);
+
+  const handleCopyLink = useCallback(async (url: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(label);
+      setTimeout(() => setShareCopied(''), 2000);
+    } catch {
+      // Fallback
+      setShareCopied(label);
+      setTimeout(() => setShareCopied(''), 2000);
+    }
+  }, []);
+
+  // Render QR codes when share dialog opens
+  useEffect(() => {
+    if (!shareOpen) return;
+    import('qrcode').then((QRCode) => {
+      if (downloadQrRef.current && downloadUrl) {
+        QRCode.toCanvas(downloadQrRef.current, downloadUrl, {
+          width: 160,
+          margin: 1,
+          color: { dark: '#141413', light: '#faf9f5' },
+        });
+      }
+      if (previewQrRef.current && previewUrl) {
+        QRCode.toCanvas(previewQrRef.current, previewUrl, {
+          width: 160,
+          margin: 1,
+          color: { dark: '#141413', light: '#faf9f5' },
+        });
+      }
+    });
+  }, [shareOpen, downloadUrl, previewUrl]);
+
   const handleOpenText = useCallback(async () => {
     setTextContentLoading(true);
     try {
@@ -275,6 +330,15 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
       label: t('chat.downloadFile'),
       onClick: handleDownload,
     },
+    ...(isPublic
+      ? [
+          {
+            key: 'share' as const,
+            label: t('rooms.share'),
+            onClick: handleOpenShare,
+          },
+        ]
+      : []),
     ...(isOwnFile && !isRecalled
       ? [
           {
@@ -302,6 +366,15 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
       label: t('chat.downloadFile'),
       onClick: handleDownload,
     },
+    ...(isPublic
+      ? [
+          {
+            key: 'share' as const,
+            label: t('rooms.share'),
+            onClick: handleOpenShare,
+          },
+        ]
+      : []),
     ...(isOwnFile && !isRecalled
       ? [
           {
@@ -360,6 +433,19 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
               ${isSelf ? 'bg-primary/10' : 'bg-canvas-card'}
             `.trim().replace(/\s+/g, ' ')}
           >
+            {/* Public file badge — top-left corner. Clickable to open share dialog. */}
+            {isPublic && !isRecalled && (
+              <button
+                onClick={handleOpenShare}
+                className="absolute top-1.5 left-1.5 z-10"
+                aria-label={t('chat.shareDialog')}
+              >
+                <Badge variant="coral" className="text-[10px] px-1.5 py-0.5 cursor-pointer hover:opacity-80 transition-opacity">
+                  {t('chat.public')}
+                </Badge>
+              </button>
+            )}
+
             {/* ---- Inline image display ---- */}
             {isImage && !isRecalled ? (
               <div>
@@ -398,6 +484,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
+                      ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
                     />
@@ -432,6 +519,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
+                      ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
                     />
@@ -466,6 +554,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   <div className="absolute bottom-1 right-1">
                     <CountdownCircle
                       expiresAt={file.expires_at}
+                      ttlSeconds={file.ttl_seconds}
                       size={18}
                       strokeWidth={1.5}
                     />
@@ -495,7 +584,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         fileName={decryptedName || `file-${file.id}`}
         content={textContent}
         isPublic={isPublic}
-        publicUrl={publicUrl}
+        publicUrl={downloadUrl}
       />
 
       {/* Image context menu (right-click / long-press on inline image) */}
@@ -513,6 +602,88 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         items={fileMenuItems}
         position={fileContextMenu}
       />
+
+      {/* Public file share dialog — QR codes + copy links */}
+      {shareOpen && (
+        <>
+          {/* Overlay */}
+          <div
+            className="fixed inset-0 bg-ink/40 z-[800] flex items-center justify-center p-4"
+            onClick={handleCloseShare}
+            aria-hidden="true"
+          />
+          {/* Dialog */}
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[801] bg-canvas rounded-xl p-6 max-w-sm mx-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('chat.shareDialog')}
+          >
+            <h2 className="text-display-sm font-display text-ink mb-4 text-center">
+              {t('chat.shareDialog')}
+            </h2>
+
+            {/* Download section */}
+            <div className="mb-4">
+              <p className="text-xs text-muted mb-2 text-center">{t('chat.downloadLink')}</p>
+              <canvas
+                ref={downloadQrRef}
+                className="mx-auto border-2 border-hairline rounded-lg mb-2"
+                aria-label={t('chat.downloadLink')}
+              />
+              <div className="flex gap-2">
+                <code className="flex-1 px-2 py-1 bg-canvas-card rounded text-[10px] font-mono text-body truncate">
+                  {downloadUrl}
+                </code>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleCopyLink(downloadUrl, 'download')}
+                >
+                  {shareCopied === 'download' ? t('common.copied') : t('common.copy')}
+                </Button>
+              </div>
+            </div>
+
+            {/* Preview section */}
+            <div className="mb-4">
+              <p className="text-xs text-muted mb-2 text-center">{t('chat.previewLink')}</p>
+              <canvas
+                ref={previewQrRef}
+                className="mx-auto border-2 border-hairline rounded-lg mb-2"
+                aria-label={t('chat.previewLink')}
+              />
+              <div className="flex gap-2">
+                <code className="flex-1 px-2 py-1 bg-canvas-card rounded text-[10px] font-mono text-body truncate">
+                  {previewUrl}
+                </code>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleCopyLink(previewUrl, 'preview')}
+                >
+                  {shareCopied === 'preview' ? t('common.copied') : t('common.copy')}
+                </Button>
+              </div>
+            </div>
+
+            {/* Close */}
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth
+              onClick={handleCloseShare}
+            >
+              {t('common.close')}
+            </Button>
+          </motion.div>
+        </>
+      )}
     </>
   );
 }

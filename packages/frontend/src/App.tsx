@@ -19,6 +19,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { RoomListPage } from '@/pages/RoomListPage';
 import { RoomPage } from '@/pages/RoomPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { PublicViewPage } from '@/pages/PublicViewPage';
 import { ToastContainer } from '@/components/ui/Toast';
 
 // Initialize i18n
@@ -106,6 +107,7 @@ export function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/view/:fileId" element={<PublicViewPage />} />
           <Route
             path="/"
             element={

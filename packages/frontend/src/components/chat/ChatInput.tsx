@@ -14,7 +14,8 @@ import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 
 interface ChatInputProps {
-  onSend: (text: string) => Promise<boolean>;
+  /** Called when the user sends a message. TTL (in minutes) is passed for all message types. */
+  onSend: (text: string, ttlMinutes?: number) => Promise<boolean>;
   onFileSelect?: (files: FileList) => void;
   disabled?: boolean;
   /** Whether the file being uploaded should be public (unencrypted, shareable). */
@@ -27,6 +28,8 @@ interface ChatInputProps {
   onUploadTTLChange?: (minutes: number) => void;
   /** Whether to show upload settings (public toggle + auto-destroy selector). */
   showUploadSettings?: boolean;
+  /** Whether to show TTL selector (for all message types). Defaults to showUploadSettings. */
+  showTtlSelector?: boolean;
 }
 
 const TTL_OPTIONS = [
@@ -46,7 +49,10 @@ export function ChatInput({
   uploadTTLMinutes = 10,
   onUploadTTLChange,
   showUploadSettings = true,
+  showTtlSelector,
 }: ChatInputProps) {
+  // TTL selector visibility: if explicitly set, use that; otherwise match upload settings
+  const showTtl = showTtlSelector !== undefined ? showTtlSelector : showUploadSettings;
   const [text, setText] = useState('');
   const [pulse, setPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -55,7 +61,7 @@ export function ChatInput({
   const handleSend = useCallback(async () => {
     if (!text.trim() || disabled) return;
     const messageText = text.trim();
-    onSend(messageText)
+    onSend(messageText, uploadTTLMinutes)
       .then((success) => {
         if (success) {
           setText('');
@@ -67,7 +73,7 @@ export function ChatInput({
         }
         // On failure, don't clear — user can retry
       });
-  }, [text, disabled, onSend]);
+  }, [text, disabled, onSend, uploadTTLMinutes]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -102,37 +108,41 @@ export function ChatInput({
 
   return (
     <div className="bg-canvas border-t border-hairline pt-3 pb-safe">
-      {/* Upload settings: public toggle + auto-destroy selector */}
-      {onFileSelect && showUploadSettings && (
+      {/* Settings bar: public toggle (file-only) + auto-destroy selector (all message types) */}
+      {(showTtl || (onFileSelect && showUploadSettings)) && (
         <div className="flex items-center gap-4 mb-2 px-1 flex-wrap">
-          {/* Public file toggle */}
-          <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={uploadIsPublic}
-              onChange={(e) => onUploadPublicChange?.(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-hairline text-primary focus:ring-primary/20"
-              aria-label={t('transfer.publicCheckbox')}
-            />
-            {t('transfer.publicCheckbox')}
-          </label>
+          {/* Public file toggle — only when file upload is supported */}
+          {onFileSelect && showUploadSettings && (
+            <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={uploadIsPublic}
+                onChange={(e) => onUploadPublicChange?.(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-hairline text-primary focus:ring-primary/20"
+                aria-label={t('transfer.publicCheckbox')}
+              />
+              {t('transfer.publicCheckbox')}
+            </label>
+          )}
 
-          {/* Auto-destroy selector */}
-          <label className="flex items-center gap-1.5 text-xs text-muted">
-            <span>{t('transfer.autoDestroy')}:</span>
-            <select
-              value={uploadTTLMinutes}
-              onChange={(e) => onUploadTTLChange?.(Number(e.target.value))}
-              className="text-xs border border-hairline rounded px-1.5 py-0.5 bg-canvas-card text-body"
-              aria-label={t('transfer.autoDestroy')}
-            >
-              {TTL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.label)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* Auto-destroy selector — applies to ALL message types (text + files) */}
+          {showTtl && (
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <span>{t('transfer.autoDestroy')}:</span>
+              <select
+                value={uploadTTLMinutes}
+                onChange={(e) => onUploadTTLChange?.(Number(e.target.value))}
+                className="text-xs border border-hairline rounded px-1.5 py-0.5 bg-canvas-card text-body"
+                aria-label={t('transfer.autoDestroy')}
+              >
+                {TTL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {t(opt.label)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
 

@@ -9,7 +9,7 @@
  * Input bar is rendered by parent (RoomPage) as a shared bottom bar.
  */
 
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
 import { useStore } from '@/lib/store';
@@ -44,21 +44,46 @@ export function ChatPage({
   sessionToken,
 }: ChatPageProps) {
   const onlineMembers = useStore((s) => s.onlineMembers);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const prevTotalRef = useRef(0);
+
+  // With flex-col-reverse, scrollTop === 0 means at "bottom" (newest messages visible).
+  // We use a small threshold (50px) to account for minor scroll jitter.
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollTop <= 50;
+    setIsAtBottom(atBottom);
+    if (atBottom) setNewMessageCount(0);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
-    // Use requestAnimationFrame to ensure React has flushed DOM updates
-    // before scrolling — prevents scroll-before-render race condition.
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // With flex-col-reverse, scrolling to 0 means bottom (newest items)
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      el.scrollTop = 0;
     });
   }, []);
 
-  // Scroll to bottom when new items arrive
   const totalItems = messages.length + files.length;
+
+  // Auto-scroll when at bottom and new items arrive
   useEffect(() => {
-    scrollToBottom();
-  }, [totalItems, scrollToBottom]);
+    if (isAtBottom && totalItems > 0) {
+      scrollToBottom();
+    }
+  }, [totalItems, isAtBottom, scrollToBottom]);
+
+  // Track new messages when scrolled away from bottom
+  useEffect(() => {
+    if (totalItems > prevTotalRef.current && !isAtBottom && totalItems > 0) {
+      setNewMessageCount((prev) => prev + (totalItems - prevTotalRef.current));
+    }
+    prevTotalRef.current = totalItems;
+  }, [totalItems, isAtBottom]);
 
   // Merge messages and files into a single timeline sorted by created_at
   const timeline = useMemo<TimelineItem[]>(() => {
@@ -87,7 +112,7 @@ export function ChatPage({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)]">
+    <div className="flex flex-col flex-1">
       {/* Online members — collapsible sidebar on large screens */}
       {onlineMembers.length > 0 && (
         <div className="flex items-center gap-2 mb-3 px-1 overflow-x-auto">
@@ -103,10 +128,17 @@ export function ChatPage({
         </div>
       )}
 
-      {/* Timeline */}
-      <div className="flex-1 overflow-y-auto px-1">
+      {/* Timeline — flex-col-reverse so newest items are at the visual bottom.
+          With CSS flex-col-reverse, the first array element (oldest) appears at
+          the far scroll end, and the last (newest) renders at the visual bottom.
+          scrollTop === 0 means "at bottom" (viewing newest messages). */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-1 relative"
+      >
         <motion.div
-          className="flex flex-col gap-1"
+          className="flex flex-col-reverse gap-1"
           initial="hidden"
           animate="visible"
           variants={{
@@ -142,7 +174,20 @@ export function ChatPage({
             })}
           </AnimatePresence>
         </motion.div>
-        <div ref={bottomRef} />
+
+        {/* "n new messages" button — shown when scrolled away from bottom */}
+        {!isAtBottom && newMessageCount > 0 && (
+          <button
+            onClick={() => {
+              scrollToBottom();
+              setNewMessageCount(0);
+            }}
+            className="absolute bottom-4 right-4 bg-primary text-white px-3 py-1.5 rounded-full shadow-lg text-sm z-10 hover:bg-primary-active transition-colors"
+            aria-label={`${newMessageCount} ${t('chat.newMessages')}`}
+          >
+            {newMessageCount} {t('chat.newMessages')}
+          </button>
+        )}
       </div>
     </div>
   );

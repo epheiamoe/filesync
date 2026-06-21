@@ -14,7 +14,7 @@ import { useState, useRef, useCallback, type DragEvent, type ChangeEvent } from 
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
-import { useStore } from '@/lib/store';
+import { useStore, type FileMetaDTO } from '@/lib/store';
 import { getRoomKey, encryptFile, encryptText } from '@/lib/crypto';
 import { UploadProgress } from './UploadProgress';
 
@@ -138,7 +138,7 @@ export function UploadZone({ roomId, roomCode }: UploadZoneProps) {
           // The file will be re-added by the WS broadcast (which store.addFile
           // deduplicates by ID), ensuring the file appears immediately in both
           // the Transfer and Chat views.
-          addFile({
+          const fmeta: FileMetaDTO = {
             id: completeRes.file_id,
             room_id: roomId,
             uploader_session_id: useStore.getState().session?.token || '',
@@ -148,8 +148,11 @@ export function UploadZone({ roomId, roomCode }: UploadZoneProps) {
             mime_type: file.type || 'application/octet-stream',
             visibility: 'private' as const,
             expires_at: expiresAt,
+            ttl_seconds: 10 * 60, // 10 min hardcoded for UploadZone
             created_at: new Date().toISOString(),
-          });
+          };
+          console.log('[UploadZone] Optimistic addFile:', fmeta.id, 'name:', file.name);
+          addFile(fmeta);
 
           // Mark complete
           setTasks((prev) =>

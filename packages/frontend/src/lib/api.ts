@@ -219,12 +219,13 @@ export const api = {
     return res.data!;
   },
 
-  async sendMessage(roomId: string, encryptedContent: string, messageType?: string, deviceLabel?: string): Promise<SendMessageResponse> {
+  async sendMessage(roomId: string, encryptedContent: string, messageType?: string, deviceLabel?: string, ttlSeconds?: number): Promise<SendMessageResponse> {
     const body: SendMessageRequest = {
       room_id: roomId,
       encrypted_content: encryptedContent,
       message_type: messageType as SendMessageRequest['message_type'],
       device_label: deviceLabel,
+      ttl_seconds: ttlSeconds,
     };
     const res = await request<ApiResponse<SendMessageResponse>>('POST', '/chat/messages', body);
     return res.data!;
