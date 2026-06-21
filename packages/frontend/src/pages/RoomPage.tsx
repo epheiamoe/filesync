@@ -54,6 +54,7 @@ export function RoomPage() {
     setMessages,
     addMessage,
     removeMessage,
+    removeFile,
     addFile,
     files,
     setOnlineMembers,
@@ -75,6 +76,7 @@ export function RoomPage() {
   const [uploadTTLMinutes, setUploadTTLMinutes] = useState(10);
   const [roomReady, setRoomReady] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [fullQrUrl, setFullQrUrl] = useState<string>('');
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -170,7 +172,15 @@ export function RoomPage() {
     try {
       const decoded = decodeShareString(keyInput.trim());
       if (!decoded || decoded.roomCode !== code) {
-        setError(t('rooms.invalidShareString'));
+        // Check if this is the old 4-group (16-char) format
+        const clean = keyInput.trim().replace(/\s/g, '');
+        const dashIdx = clean.indexOf('-');
+        const keyPart = dashIdx > 0 ? clean.slice(dashIdx + 1).replace(/-/g, '') : '';
+        if (keyPart.length === 16) {
+          setError(t('rooms.oldFormatDeprecated'));
+        } else {
+          setError(t('rooms.invalidShareString'));
+        }
         setJoining(false);
         return;
       }
@@ -237,10 +247,13 @@ export function RoomPage() {
           break;
         }
         case 'recall': {
-          const payload = event.payload as { message_id?: string; id?: string };
-          // Support both old (message_id) and new (id) field names for recall
-          const targetId = payload.message_id || payload.id || '';
-          if (targetId) removeMessage(targetId);
+          const payload = event.payload as { message_id?: string; id?: string; file_id?: string };
+          // Support both old (message_id) and new (id) field names for message recall
+          const msgTargetId = payload.message_id || payload.id || '';
+          if (msgTargetId) removeMessage(msgTargetId);
+          // Handle file recall — backend sends file_id when a file is recalled
+          const fileTargetId = payload.file_id || '';
+          if (fileTargetId) removeFile(fileTargetId);
           break;
         }
         case 'file_shared': {
@@ -262,7 +275,7 @@ export function RoomPage() {
     return () => {
       socket.close();
     };
-  }, [code, session?.token, roomReady, addMessage, removeMessage, addFile, setOnlineMembers]);
+  }, [code, session?.token, roomReady, addMessage, removeMessage, removeFile, addFile, setOnlineMembers]);
 
   // ---- Decrypt messages as they arrive ----
 
@@ -752,6 +765,14 @@ export function RoomPage() {
             onClose={() => setShareOpen(false)}
             shareString={shareString}
             roomCode={code!}
+            isAdmin={session?.scope?.includes('admin')}
+            fullQrUrl={fullQrUrl}
+            onGenerateCredential={async () => {
+              const result = await api.createTempCredential();
+              const loginUrl = `${window.location.origin}/login#${encodeURIComponent(shareString)}-${result.code}`;
+              setFullQrUrl(loginUrl);
+              return { code: result.code, expires_at: result.expires_at };
+            }}
           />
         );
       })()}

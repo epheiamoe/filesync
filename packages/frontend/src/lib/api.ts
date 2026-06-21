@@ -38,6 +38,7 @@ import type {
   ApiResponse,
   WsTicketResponse,
 } from '@shared/types';
+import { getOrCreateClientFingerprint } from './crypto';
 
 // ---- Auth state access (injected at runtime) ----
 let getToken: () => string | null = () => null;
@@ -181,7 +182,14 @@ export const api = {
   },
 
   async joinRoom(roomCode: string, keyHash: string, deviceLabel?: string): Promise<JoinRoomResponse> {
-    const body: JoinRoomRequest = { room_code: roomCode, key_hash: keyHash, device_label: deviceLabel };
+    // client_fingerprint is sent as an extra field — the shared type will be updated by impl-3.
+    // Cast through unknown to avoid TS errors while impl-3 schema migration is pending.
+    const body = {
+      room_code: roomCode,
+      key_hash: keyHash,
+      device_label: deviceLabel,
+      client_fingerprint: getOrCreateClientFingerprint(),
+    } as JoinRoomRequest;
     const res = await request<ApiResponse<JoinRoomResponse>>('POST', '/rooms/join', body);
     return res.data!;
   },
@@ -191,8 +199,9 @@ export const api = {
     return res.data!;
   },
 
-  async listRooms(): Promise<RoomInfo[]> {
-    const res = await request<ApiResponse<{ rooms: RoomInfo[] }>>('GET', '/rooms');
+  async listRooms(fingerprint?: string): Promise<RoomInfo[]> {
+    const params = fingerprint ? `?client_fingerprint=${encodeURIComponent(fingerprint)}` : '';
+    const res = await request<ApiResponse<{ rooms: RoomInfo[] }>>('GET', `/rooms${params}`);
     return res.data!.rooms;
   },
 

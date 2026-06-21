@@ -6,13 +6,13 @@
  * Admin users can delete individual rooms with confirmation dialog.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString, hasRoomKey } from '@/lib/crypto';
+import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString, hasRoomKey, getOrCreateClientFingerprint } from '@/lib/crypto';
 import { parseDeviceLabel } from '@/lib/device';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -36,6 +36,11 @@ export function RoomListPage() {
   const [qrOpen, setQrOpen] = useState(false);
   const [qrData, setQrData] = useState({ shareString: '', roomCode: '' });
   const [deletingRooms, setDeletingRooms] = useState<Set<string>>(new Set());
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanningRef = useRef(false);
   const addToast = useStore((s) => s.addToast);
 
   const loadRooms = useCallback(async () => {
@@ -46,9 +51,10 @@ export function RoomListPage() {
         const data = await api.getAdminRooms();
         setRooms(data);
       } else {
-        // Non-admin: try listing rooms (the endpoint returns accessible rooms)
+        // Non-admin: send client fingerprint for cross-session room lookup
         try {
-          const data = await api.listRooms();
+          const fingerprint = getOrCreateClientFingerprint();
+          const data = await api.listRooms(fingerprint);
           setRooms(data);
         } catch {
           setRooms([]);
@@ -98,6 +104,127 @@ export function RoomListPage() {
     }
   };
 
+  // ---- QR Scanner ----
+
+  const handleScanQR = async () => {
+    setScanning(true);
+    setScanError('');
+    scanningRef.current = true;
+
+    const stopScanning = () => {
+      scanningRef.current = false;
+      setScanning(false);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+
+    // Helper: extract share string from scanned content
+    const processScanResult = (content: string) => {
+      // Try to find login#<shareString>[-<credential>] pattern
+      const loginMatch = content.match(/login#(.+)/);
+      if (loginMatch) {
+        const fragment = decodeURIComponent(loginMatch[1]);
+        stopScanning();
+        navigate(`/login#${encodeURIComponent(fragment)}`);
+        return true;
+      }
+      // Direct share string format: "4821-XXXX-XXXX-..."
+      if (/^\d{4}-[0-9A-HJKMNP-TV-Z]+(-[0-9A-HJKMNP-TV-Z]+)*$/i.test(content)) {
+        stopScanning();
+        navigate(`/login#${encodeURIComponent(content)}`);
+        return true;
+      }
+      return false;
+    };
+
+    // ---- Path A: BarcodeDetector API (Chrome/Edge) ----
+    const BarcodeDetectorCtor = (window as unknown as Record<string, unknown>).BarcodeDetector;
+    if (typeof BarcodeDetectorCtor === 'function') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        const detector = new (BarcodeDetectorCtor as new (opts: { formats: string[] }) => {
+          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
+        })({ formats: ['qr_code'] });
+
+        const scanFrame = async () => {
+          if (!videoRef.current || !scanningRef.current) return;
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            for (const barcode of barcodes) {
+              if (processScanResult(barcode.rawValue)) return;
+            }
+          } catch {
+            // Detection error on a single frame — continue scanning
+          }
+          if (scanningRef.current) {
+            requestAnimationFrame(scanFrame);
+          }
+        };
+        scanFrame();
+        return;
+      } catch {
+        // Camera access denied or BarcodeDetector failed → fall through to Path B
+        stopScanning();
+      }
+    }
+
+    // ---- Path B: File picker fallback ----
+    // BarcodeDetector not supported or camera denied — use file input
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.onchange = async () => {
+      const file = fileInput.files?.[0];
+      if (!file) {
+        setScanning(false);
+        return;
+      }
+      try {
+        // Use dynamic import of jsqr for fallback
+        // @ts-expect-error - jsqr may not have type declarations; runtime import is handled via .catch
+        const jsQRModule = await import('jsqr').catch(() => null);
+        const jsQR = jsQRModule?.default;
+        if (!jsQR) {
+          setScanError(t('rooms.scanCameraDenied'));
+          setScanning(false);
+          return;
+        }
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          setScanError(t('rooms.scanCameraDenied'));
+          setScanning(false);
+          return;
+        }
+        ctx.drawImage(bitmap, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code && processScanResult(code.data)) {
+          return;
+        }
+        setScanError(t('rooms.scanCameraDenied'));
+      } catch {
+        setScanError(t('rooms.scanCameraDenied'));
+      }
+      setScanning(false);
+    };
+    fileInput.click();
+  };
+
   const handleJoinRoom = async () => {
     setError('');
     setJoining(true);
@@ -105,14 +232,22 @@ export function RoomListPage() {
       // Try to decode as share string first
       const decoded = decodeShareString(shareStringInput);
       if (!decoded) {
+        // Check if this is the old 4-group (16-char) format
+        const clean = shareStringInput.trim().replace(/\s/g, '');
+        const dashIdx = clean.indexOf('-');
+        const keyPart = dashIdx > 0 ? clean.slice(dashIdx + 1).replace(/-/g, '') : '';
+        if (keyPart.length === 16) {
+          setError(t('rooms.oldFormatDeprecated'));
+          setJoining(false);
+          return;
+        }
         // Try as plain room code + manual key
         if (shareStringInput.length !== 4) {
           setError(t('rooms.roomNotFound'));
-          return;
+        } else {
+          setError(t('rooms.keyMismatch'));
         }
-        // We need a key — but user must provide it somehow.
-        // For now, assume the input is a share string.
-        setError(t('rooms.keyMismatch'));
+        setJoining(false);
         return;
       }
 
@@ -211,13 +346,41 @@ export function RoomListPage() {
       <main className="max-w-4xl mx-auto px-4 py-8">
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={() => setShowCreate(!showCreate)}
-          >
-            + {t('rooms.create')}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => setShowCreate(!showCreate)}
+            >
+              + {t('rooms.create')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={handleScanQR}
+              aria-label={t('rooms.scanQR')}
+            >
+              <svg
+                className="w-5 h-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 7V5a2 2 0 012-2h2" />
+                <path d="M17 3h2a2 2 0 012 2v2" />
+                <path d="M21 17v2a2 2 0 01-2 2h-2" />
+                <path d="M7 21H5a2 2 0 01-2-2v-2" />
+                <rect x="7" y="7" width="6" height="6" rx="1" />
+                <rect x="7" y="15" width="6" height="2" rx="0.5" />
+                <rect x="15" y="7" width="2" height="6" rx="0.5" />
+              </svg>
+              {t('rooms.scanQR')}
+            </Button>
+          </div>
 
           {/* Join section */}
           <div className="flex-1 flex gap-2">
@@ -383,6 +546,42 @@ export function RoomListPage() {
           </motion.div>
         )}
       </main>
+
+      {/* QR Scanner Overlay */}
+      <AnimatePresence>
+        {scanning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 z-[900] flex flex-col items-center justify-center p-4"
+          >
+            <video
+              ref={videoRef}
+              className="max-w-full max-h-[70vh] rounded-lg"
+              playsInline
+              aria-label={t('rooms.scanQR')}
+            />
+            <Button
+              variant="ghost"
+              onClick={() => {
+                scanningRef.current = false;
+                setScanning(false);
+                if (streamRef.current) {
+                  streamRef.current.getTracks().forEach((t) => t.stop());
+                  streamRef.current = null;
+                }
+              }}
+              className="mt-4 text-white"
+            >
+              {t('common.cancel')}
+            </Button>
+            {scanError && (
+              <p className="text-error mt-2 text-sm" role="alert">{scanError}</p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* QR Share Modal */}
       <QRShare

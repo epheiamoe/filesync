@@ -109,15 +109,21 @@ function mapAmbiguousChar(ch: string): number {
 // ---- Share String Format ----
 
 /**
- * Encode key as grouped base32 string: "XXXX-XXXX-XXXX-XXXX"
- * Uses Crockford base32, grouped in 4-character chunks.
+ * Encode key as grouped base32 string.
+ * Uses ALL 52 Crockford base32 characters (13 groups × 4 chars/group).
+ *
+ * Previously this truncated to 16 chars (only ~10 bytes), which caused
+ * zero-padded key mismatches. The full 52-char encoding carries all 32
+ * bytes of the AES-256 key.
  */
 export function encodeKeyGroups(key: Uint8Array): string {
   const base32 = bytesToBase32(key);
-  // Take first 16 chars for share string (4 groups of 4)
-  const short = base32.slice(0, 16);
-  // Insert dashes every 4 chars
-  return short.match(/.{1,4}/g)?.join('-') || short;
+  // Use full 52-char base32 → 13 groups of 4
+  const groups: string[] = [];
+  for (let i = 0; i < base32.length; i += 4) {
+    groups.push(base32.slice(i, i + 4));
+  }
+  return groups.join('-');
 }
 
 /**
@@ -131,18 +137,13 @@ export function encodeShareString(roomCode: string, key: Uint8Array): string {
 /**
  * Decode share string back to {roomCode, keyUint8Array}.
  *
- * Share string format: "4821-XK7M-A3PQ-Z9WJ"
- * The key part MUST be 16 base32 chars (decodes to 10 bytes).
- * We pad the key back to 32 bytes with zeroes for AES-256 — note that
- * the actual key used must be the full 32-byte key generated and shared
- * separately, or the share string must carry the full base32 encoded key.
+ * Supports ONLY the full 52-char base32 format (13 groups × 4 chars).
+ * Old 16-char (4 groups) format is detected and explicitly rejected
+ * because it only carries 10 bytes of the 32-byte key, causing
+ * zero-padded mismatch with the actual AES-256 key.
  *
- * DESIGN NOTE: Architecture.md specifies the full 52-char base32 key for
- * the share string. In practice, we encode the FULL key as base32 (52 chars)
- * and group into 13 groups of 4. The API returns share_string with full key.
- *
- * For MVP, we handle both: try to decode as full length first, then fallback
- * to short (16 char) format.
+ * Share string format: "4821-XK7M-A3PQ-Z9WJ-B5NT-FK26-G8VE-..."
+ * (13 groups of 4 base32 chars after the 4-digit room code)
  */
 export function decodeShareString(shareStr: string): { roomCode: string; key: Uint8Array } | null {
   // Remove whitespace
@@ -155,23 +156,29 @@ export function decodeShareString(shareStr: string): { roomCode: string; key: Ui
   const roomCode = clean.slice(0, dashIdx);
   const keyPart = clean.slice(dashIdx + 1).replace(/-/g, '');
 
-  // Validate roomCode is 4 chars
-  if (roomCode.length !== 4) return null;
+  // Validate roomCode: 4 digits only
+  if (roomCode.length !== 4 || !/^\d{4}$/.test(roomCode)) return null;
 
-  // Decode the key part (full base32 or short)
+  // Validate keyPart characters are in Crockford base32 set
+  if (!/^[0-9A-HJKMNP-TV-Z]+$/i.test(keyPart)) return null;
+
+  // Decode the key part
   const keyBytes = base32ToBytes(keyPart);
 
-  // If we only got <32 bytes, pad to 32 (for short share strings)
-  let key: Uint8Array;
+  // Reject old 16-char format (decodes to only 10 bytes, not 32).
+  // The old format cannot reconstruct the full AES-256 key.
+  // Callers should prompt the user to get a new share string.
   if (keyBytes.length < 32) {
-    key = new Uint8Array(32);
-    key.set(keyBytes);
-  } else if (keyBytes.length === 32) {
-    key = keyBytes;
-  } else {
-    // Truncate to 32 bytes (shouldn't happen with proper base32 encoding)
-    key = keyBytes.slice(0, 32);
+    console.warn(
+      '[crypto] decodeShareString: old 16-char share string format detected — ' +
+      'key decodes to only ' + keyBytes.length + ' bytes (need 32). ' +
+      'This format is deprecated. Please ask the room creator to generate a new share link.',
+    );
+    return null;
   }
+
+  // If slightly over 32 bytes due to padding bits, truncate to exactly 32
+  const key = keyBytes.length === 32 ? keyBytes : keyBytes.slice(0, 32);
 
   return { roomCode, key };
 }
@@ -398,4 +405,59 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+// ---- File Integrity (Feature #8) ----
+
+/**
+ * Compute SHA-256 hash of an ArrayBuffer, returning 64-char hex string.
+ *
+ * Used for file integrity verification: the hash of the original (unencrypted)
+ * file is computed client-side before encryption and stored on the server.
+ * After download and decryption, the hash is recomputed and compared to
+ * detect corruption or tampering.
+ *
+ * This provides an integrity layer on top of E2EE — even if the encrypted
+ * R2 object is replaced, the hash mismatch will reveal it.
+ */
+export async function computeFileHash(data: ArrayBuffer): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return bufferToHex(new Uint8Array(hashBuffer));
+}
+
+// ---- Client Fingerprint (Fix #3) ----
+
+const FINGERPRINT_STORAGE_KEY = 'epheia_client_fingerprint';
+
+/**
+ * Get or create a persistent client fingerprint stored in localStorage.
+ *
+ * This fingerprint identifies the same browser/device across login sessions,
+ * allowing users (especially temp credential users) to see rooms they've
+ * previously joined even after their session token changes.
+ *
+ * The fingerprint is a 32-char hex string generated once and persisted
+ * until the user clears site data.
+ *
+ * Why this approach: server-side session tokens change on every login,
+ * so room_members.session_id can't match across sessions. A client-side
+ * persistent identifier solves this without server-side identity tracking.
+ */
+export function getOrCreateClientFingerprint(): string {
+  try {
+    const existing = localStorage.getItem(FINGERPRINT_STORAGE_KEY);
+    if (existing) return existing;
+
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const fingerprint = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    localStorage.setItem(FINGERPRINT_STORAGE_KEY, fingerprint);
+    return fingerprint;
+  } catch {
+    // localStorage unavailable (private mode / SSR) — return a session-only fallback
+    return 'session_' + Math.random().toString(36).slice(2, 10);
+  }
 }

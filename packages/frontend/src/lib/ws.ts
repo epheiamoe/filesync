@@ -198,8 +198,7 @@ export class RoomSocket {
         this.messageHandlers.forEach((h) => h(wsMsg));
         break;
       }
-      case 'file_shared':
-      case 'file_recalled': {
+      case 'file_shared': {
         // Normalize payload: map backend field names → DTO-compatible field names.
         // Supports BOTH old names (file_id) and new names (id) for backward compat.
         const normalizedPayload: Record<string, unknown> = {
@@ -225,9 +224,13 @@ export class RoomSocket {
         break;
       }
       case 'recall': {
-        // Normalize recall payload — keep message_id for backward compat with RoomPage
+        // Normalize recall payload — preserve all original fields.
+        // Backend sends { message_id, file_id } or { id } depending on context.
+        // We pass through everything so the handler (RoomPage) can dispatch
+        // to both removeMessage and removeFile as needed.
         const normalizedPayload: Record<string, unknown> = {
           message_id: rawPayload.message_id || rawPayload.id,
+          file_id: rawPayload.file_id || '',
           ...rawPayload,
         };
         const wsMsg: WsMessage = {

@@ -1,35 +1,60 @@
 /**
  * QRShare component — QR code generation and display for room sharing.
  *
- * Uses the 'qrcode' package to generate QR codes from share strings.
- * Animated reveal with spring physics.
+ * Features:
+ * - Simple QR: share string only (always visible)
+ * - Full QR: login URL with share string + temp credential (admin only)
+ * - "Generate Quick QR" button for admin users to create temp credentials
+ * - Animated reveal with spring physics
  */
-
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '@/i18n';
 import { Button } from '@/components/ui/Button';
 
+interface CredentialResult {
+  code: string;
+  expires_at: string;
+}
+
 interface QRShareProps {
   shareString: string;
   roomCode: string;
   isOpen: boolean;
   onClose: () => void;
+  /** Whether the current user is an admin (shows "Generate Quick QR" button) */
+  isAdmin?: boolean;
+  /** Pre-built full QR URL (login URL with credential embedded) */
+  fullQrUrl?: string;
+  /** Callback to generate a temp credential — admin only */
+  onGenerateCredential?: () => Promise<CredentialResult>;
 }
 
-export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function QRShare({
+  shareString,
+  roomCode,
+  isOpen,
+  onClose,
+  isAdmin = false,
+  fullQrUrl,
+  onGenerateCredential,
+}: QRShareProps) {
+  const simpleCanvasRef = useRef<HTMLCanvasElement>(null);
+  const fullCanvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
+  const [showFullQR, setShowFullQR] = useState(false);
+  const [generatedCred, setGeneratedCred] = useState<CredentialResult | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generatedFullUrl, setGeneratedFullUrl] = useState('');
   const navigate = useNavigate();
 
+  // ---- Simple QR rendering ----
   useEffect(() => {
-    if (!isOpen || !canvasRef.current) return;
-
-    // Dynamic import to avoid bundling qrcode if not used
+    if (!isOpen || !simpleCanvasRef.current) return;
     import('qrcode').then((QRCode) => {
-      if (canvasRef.current) {
-        QRCode.toCanvas(canvasRef.current, shareString, {
+      if (simpleCanvasRef.current) {
+        QRCode.toCanvas(simpleCanvasRef.current, shareString, {
           width: 256,
           margin: 2,
           color: {
@@ -41,24 +66,102 @@ export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps
     });
   }, [isOpen, shareString]);
 
+  // ---- Full QR rendering ----
+  useEffect(() => {
+    if (!isOpen || !fullCanvasRef.current) return;
+    const targetUrl = fullQrUrl || generatedFullUrl;
+    if (!targetUrl) return;
+    import('qrcode').then((QRCode) => {
+      if (fullCanvasRef.current) {
+        QRCode.toCanvas(fullCanvasRef.current, targetUrl, {
+          width: 256,
+          margin: 2,
+          color: {
+            dark: '#141413',
+            light: '#faf9f5',
+          },
+        });
+      }
+    });
+  }, [isOpen, fullQrUrl, generatedFullUrl]);
+
+  // ---- Has full QR available? ----
+  const hasFullQR = !!(fullQrUrl || generatedCred);
+
+  // ---- Auto-show full QR tab when generated ----
+  useEffect(() => {
+    if (generatedCred) {
+      setShowFullQR(true);
+    }
+  }, [generatedCred]);
+
+  // ---- Copy handlers ----
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(shareString);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = shareString;
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyUrl = async () => {
+    const url = fullQrUrl || generatedFullUrl;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = url;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyCredCode = async () => {
+    if (!generatedCred) return;
+    try {
+      await navigator.clipboard.writeText(generatedCred.code);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = generatedCred.code;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // ---- Generate credential ----
+  const handleGenerate = async () => {
+    if (!onGenerateCredential) return;
+    setGenerating(true);
+    try {
+      const cred = await onGenerateCredential();
+      setGeneratedCred(cred);
+      setGeneratedFullUrl(
+        `${window.location.origin}/login#${encodeURIComponent(shareString)}-${cred.code}`,
+      );
+    } catch {
+      // Error handled by caller (toast)
+    } finally {
+      setGenerating(false);
     }
   };
 
+  // ---- Export ----
   const handleExport = () => {
     const blob = new Blob([shareString], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -68,6 +171,9 @@ export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // ---- Full QR URL display ----
+  const displayFullUrl = fullQrUrl || generatedFullUrl;
 
   return (
     <AnimatePresence>
@@ -87,31 +193,138 @@ export function QRShare({ shareString, roomCode, isOpen, onClose }: QRShareProps
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-              className="bg-canvas rounded-xl p-8 max-w-sm w-full shadow-xl"
+              className="bg-canvas rounded-xl p-8 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-label={t('rooms.shareString')}
             >
-              <h2 className="text-display-sm font-display text-ink mb-6 text-center">
+              <h2 className="text-display-sm font-display text-ink mb-4 text-center">
                 {t('rooms.shareString')}
               </h2>
 
-              {/* QR Code */}
+              {/* Tab bar: Simple QR | Full QR */}
+              {hasFullQR && (
+                <div className="flex rounded-lg bg-canvas-card p-0.5 mb-4" role="tablist" aria-label={t('rooms.shareString')}>
+                  <button
+                    role="tab"
+                    aria-selected={!showFullQR}
+                    onClick={() => setShowFullQR(false)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      !showFullQR
+                        ? 'bg-canvas text-ink shadow-sm'
+                        : 'text-muted hover:text-body'
+                    }`}
+                  >
+                    {t('rooms.simpleQR')}
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={showFullQR}
+                    onClick={() => setShowFullQR(true)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      showFullQR
+                        ? 'bg-canvas text-ink shadow-sm'
+                        : 'text-muted hover:text-body'
+                    }`}
+                  >
+                    {t('rooms.fullQR')}
+                  </button>
+                </div>
+              )}
+
+              {/* Simple QR Code */}
               <motion.div
                 initial={{ scale: 0, rotate: -10 }}
                 animate={{ scale: 1, rotate: 0 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.1 }}
-                className="flex justify-center mb-6"
+                className={`flex justify-center mb-4 ${showFullQR ? 'hidden' : ''}`}
               >
                 <canvas
-                  ref={canvasRef}
+                  ref={simpleCanvasRef}
                   className="border-4 border-hairline rounded-lg"
-                  aria-label={t('rooms.qrCode')}
+                  aria-label={t('rooms.simpleQrCode')}
                 />
               </motion.div>
 
-              {/* Share string */}
+              {/* Full QR Code */}
+              <motion.div
+                initial={{ scale: 0, rotate: -10 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.1 }}
+                className={`flex justify-center mb-4 ${!showFullQR ? 'hidden' : ''}`}
+              >
+                <canvas
+                  ref={fullCanvasRef}
+                  className="border-4 border-hairline rounded-lg"
+                  aria-label={t('rooms.fullQrCode')}
+                />
+              </motion.div>
+
+              {/* Admin: Generate Quick QR button */}
+              {isAdmin && onGenerateCredential && (
+                <div className="mb-4 p-3 bg-canvas-card rounded-lg">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={handleGenerate}
+                    loading={generating}
+                    disabled={generating}
+                  >
+                    {t('rooms.generateQuickQR')}
+                  </Button>
+
+                  {generatedCred && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="mt-3 space-y-2 overflow-hidden"
+                    >
+                      <p className="text-[10px] text-muted">
+                        {t('rooms.quickQRExpires')}: {new Date(generatedCred.expires_at).toLocaleString()}
+                      </p>
+                      <div className="flex gap-2">
+                        <code className="flex-1 px-2 py-1 bg-canvas rounded text-xs font-mono text-body truncate">
+                          {generatedCred.code}
+                        </code>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleCopyCredCode}
+                          aria-label={copied ? t('common.copied') : t('common.copy')}
+                        >
+                          {t('common.copy')}
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )}
+
+              {/* Full QR URL display */}
+              {showFullQR && displayFullUrl && (
+                <div className="mb-4">
+                  <label className="text-xs text-muted mb-1 block">
+                    {t('rooms.fullQRUrl')}
+                  </label>
+                  <div className="flex gap-2">
+                    <code className="flex-1 px-3 py-2 bg-canvas-card rounded-md text-[10px] font-mono text-body break-all">
+                      {displayFullUrl}
+                    </code>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleCopyUrl}
+                      aria-label={copied ? t('common.copied') : t('common.copy')}
+                    >
+                      {t('common.copy')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Share string (always visible) */}
               <div className="mb-4">
                 <label className="text-xs text-muted mb-1 block">
                   {t('rooms.shareString')}
