@@ -35,6 +35,7 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   token: string;
+  account_type: string;
   scope: string;
   expires_at: string;
 }

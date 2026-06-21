@@ -191,7 +191,6 @@ export function RoomListPage() {
       }
       try {
         // Use dynamic import of jsqr for fallback
-        // @ts-expect-error - jsqr may not have type declarations; runtime import is handled via .catch
         const jsQRModule = await import('jsqr').catch(() => null);
         const jsQR = jsQRModule?.default;
         if (!jsQR) {
