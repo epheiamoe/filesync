@@ -164,19 +164,42 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     setDownloading(true);
     try {
       const response = await api.downloadFile(file.id);
-      const blob = await response.blob();
+
+      // Check encryption flag before using bytes
+      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      let blob: Blob;
+
+      if (isEncrypted) {
+        const key = getRoomKey(roomCode);
+        if (!key) {
+          addToast({ type: 'error', message: t('e2ee.decryptError') });
+          setDownloading(false);
+          return;
+        }
+        const encryptedBlob = await response.blob();
+        const encryptedBuffer = await encryptedBlob.arrayBuffer();
+        const decryptedBuffer = await decryptFile(key, encryptedBuffer);
+        blob = new Blob([decryptedBuffer], { type: file.mime_type });
+      } else {
+        blob = await response.blob();
+      }
+
+      // Save decrypted blob
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = decryptedName || `file-${file.id}`;
+      document.body.appendChild(a); // Required for Firefox
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      // Revoke after a short delay to ensure the download starts
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     } finally {
       setDownloading(false);
     }
-  }, [file.id, decryptedName, addToast]);
+  }, [file, roomCode, decryptedName, addToast]);
 
   const handleRecall = useCallback(async () => {
     try {

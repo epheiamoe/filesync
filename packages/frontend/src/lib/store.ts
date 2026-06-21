@@ -202,9 +202,14 @@ export const useStore = create<AppState>((set) => ({
 
   // ---- File Actions ----
   addFile: (file) => {
-    set((state) => ({
-      files: [...state.files, file],
-    }));
+    set((state) => {
+      // Deduplicate by ID — prevents double-add when optimistic local add
+      // races with the WebSocket broadcast of the same file_shared event.
+      if (state.files.some((f) => f.id === file.id)) {
+        return state;
+      }
+      return { files: [...state.files, file] };
+    });
   },
 
   setFiles: (files) => {

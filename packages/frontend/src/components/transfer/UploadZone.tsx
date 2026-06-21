@@ -122,7 +122,7 @@ export function UploadZone({ roomId, roomCode }: UploadZoneProps) {
           }
 
           // 6. Complete upload
-          await api.completeUpload(
+          const completeRes = await api.completeUpload(
             initRes.upload_id,
             initRes.r2_key,
             parts,
@@ -133,6 +133,23 @@ export function UploadZone({ roomId, roomCode }: UploadZoneProps) {
             expiresAt,
             roomId,
           );
+
+          // Optimistic add to store — mirrors RoomPage.handleFileUpload behavior.
+          // The file will be re-added by the WS broadcast (which store.addFile
+          // deduplicates by ID), ensuring the file appears immediately in both
+          // the Transfer and Chat views.
+          addFile({
+            id: completeRes.file_id,
+            room_id: roomId,
+            uploader_session_id: useStore.getState().session?.token || '',
+            encrypted_filename: encryptedFilename,
+            encrypted_meta: '',
+            file_size: encrypted.byteLength,
+            mime_type: file.type || 'application/octet-stream',
+            visibility: 'private' as const,
+            expires_at: expiresAt,
+            created_at: new Date().toISOString(),
+          });
 
           // Mark complete
           setTasks((prev) =>

@@ -132,6 +132,23 @@ export function RoomPage() {
 
         const msgRes = await api.getMessages(roomInfo.id);
         setMessages(msgRes.messages);
+
+        // Load existing files via HTTP as a fallback/reconciliation layer.
+        // WebSocket file_shared broadcasts handle real-time additions,
+        // but may miss historical files after reconnect or for late joiners.
+        try {
+          const fileRes = await api.getFilesList(roomInfo.id);
+          // Merge with any files that may have already arrived via WS.
+          // Use functional update to avoid race conditions.
+          useStore.setState((state) => {
+            const existingIds = new Set(state.files.map((f) => f.id));
+            const newFiles = fileRes.files.filter((f) => !existingIds.has(f.id));
+            if (newFiles.length === 0) return state;
+            return { files: [...state.files, ...newFiles] };
+          });
+        } catch {
+          // Non-critical: files will still arrive via WS file_shared events
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('common.error');
         setError(message);
@@ -176,6 +193,20 @@ export function RoomPage() {
       });
       const msgRes = await api.getMessages(roomInfo.id);
       setMessages(msgRes.messages);
+
+      // Load existing files via HTTP as a fallback (same as initRoom above)
+      try {
+        const fileRes = await api.getFilesList(roomInfo.id);
+        useStore.setState((state) => {
+          const existingIds = new Set(state.files.map((f) => f.id));
+          const newFiles = fileRes.files.filter((f) => !existingIds.has(f.id));
+          if (newFiles.length === 0) return state;
+          return { files: [...state.files, ...newFiles] };
+        });
+      } catch {
+        // Non-critical
+      }
+
       setRoomReady(true);
       setLoading(false);
     } catch (err: unknown) {
