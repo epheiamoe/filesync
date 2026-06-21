@@ -57,7 +57,7 @@ export function setUnauthorizedHandler(fn: () => void): void {
 // Dev: proxy to local wrangler. Production: direct Worker URL.
 const BASE_URL = import.meta.env.DEV
   ? '/api'
-  : 'https://filesync-api.epheia.workers.dev/api';
+  : 'https://filesync-api.epheia.moe/api';
 
 /**
  * Returns the API base URL — for use in direct URL construction

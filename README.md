@@ -55,8 +55,14 @@ curl -X PUT <YOUR_WORKER_URL>/api/admin/password \
 - 前端: React + Vite + Tailwind CSS + Framer Motion + PWA
 - 加密: Web Crypto API (AES-256-GCM)，端到端加密
 
-## API 文档
-详见 [docs/api.md](docs/api.md)。
+## 在线地址
+- **API:** `https://filesync-api.epheia.workers.dev`
+- **前端:** `https://epheia-files.pages.dev`
+
+## 文档
+- [API 文档](docs/api.md)
+- [架构文档](docs/architecture/current-state.md)
+- [开发指南](docs/guide/development.md)
 
 ## 配置方式
 - 复制 `packages/backend/wrangler.jsonc.template` → `packages/backend/wrangler.jsonc` 并填入你的资源 ID

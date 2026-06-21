@@ -4,7 +4,11 @@
 
 ## 认证
 
-所有需要认证的端点需在 Header 中携带 `Authorization: Bearer <token>`。
+认证方式按优先级：
+1. **Cookie**：`epheia_session` HttpOnly cookie（浏览器自动携带）
+2. **Header**：`Authorization: Bearer <token>`（API / CLI 兼容）
+
+所有需要认证的端点需携带上述任一凭证。
 
 ### POST /api/auth/login
 登录，支持三种方式。
@@ -120,7 +124,17 @@
 ### GET /api/ws/connect?ticket=XXX
 使用 ticket 建立 WebSocket 连接（Upgrade 到 RoomDO）。
 
-WebSocket 消息格式：`{ "event": "message|recall|file_shared|presence", "data": {...} }`
+WebSocket 消息格式（`WsMessage` / `BroadcastEvent`）：
+```json
+{
+  "type": "chat | file_shared | recall | member_join | member_leave | system",
+  "payload": <事件载体>,
+  "sender_session_id": "...",
+  "device_label": "...",
+  "timestamp": "ISO 8601"
+}
+```
+> **注意：** 前端接收事件的 key 是 `payload`，不是 `data`。该字段名已在 `8bbc8c6` 提交中与后端对齐。
 
 ---
 
@@ -154,6 +168,21 @@ WebSocket 消息格式：`{ "event": "message|recall|file_shared|presence", "dat
 修改管理员密码。
 
 **Body:** `{ "current_password": "...", "new_password": "..." }`（至少 8 位）
+
+### GET /api/admin/config?key=roomTtlHours
+获取管理配置（如房间过期 TTL）。
+
+### PUT /api/admin/config
+设置管理配置。
+
+**Body:** `{ "key": "roomTtlHours", "value": "48" }`
+
+---
+
+## 公共文件
+
+### GET /api/files/:id/public
+获取公共文件（无需认证）。直接返回原始文件内容。
 
 ---
 
