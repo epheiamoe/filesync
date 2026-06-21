@@ -21,7 +21,7 @@
  * - For MVP, no syntax highlighting — plain monospace text (bundle size concern)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
@@ -118,6 +118,12 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   // at the storage layer — visibility only controls auth). The X-File-Encrypted
   // response header signals that the blob must be decrypted client-side
   // before rendering.
+  //
+  // We use a ref to track the current blob URL so the cleanup function can
+  // revoke it on unmount or when file.id changes, preventing memory leaks
+  // from orphaned blob URLs.
+  const blobUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isImage || isRecalled) return;
 
@@ -142,6 +148,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
 
         if (!revoked) {
           const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
           setImageBlobUrl(url);
         }
       } catch {
@@ -153,6 +160,13 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
 
     return () => {
       revoked = true;
+      // Revoke the previous blob URL to prevent memory leaks.
+      // Without this, each decrypted image blob remains in memory
+      // permanently after component unmount or file source change.
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
     };
     // Only re-fetch when file.id changes (not on imageBlobUrl change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,7 +187,6 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         const key = getRoomKey(roomCode);
         if (!key) {
           addToast({ type: 'error', message: t('e2ee.decryptError') });
-          setDownloading(false);
           return;
         }
         const encryptedBlob = await response.blob();

@@ -115,7 +115,6 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
         const key = getRoomKey(roomCode);
         if (!key) {
           addToast({ type: 'error', message: t('e2ee.decryptError') });
-          setDownloading(false);
           return;
         }
         const encryptedBlob = await response.blob();
