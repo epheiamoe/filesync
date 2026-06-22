@@ -5,9 +5,9 @@ import { describe, it, expect } from 'vitest';
 import { hashPassword, verifyPassword, needsRehash } from '../../src/crypto/pbkdf2';
 
 describe('PBKDF2 hashPassword', () => {
-  it('returns a PBKDF2 formatted hash with default 600000 iterations', async () => {
+  it('returns a PBKDF2 formatted hash with default 100000 iterations', async () => {
     const hashed = await hashPassword('password');
-    expect(hashed).toMatch(/^\$pbkdf2-sha256\$i=600000\$[a-f0-9]{32}\$[a-f0-9]{64}$/);
+    expect(hashed).toMatch(/^\$pbkdf2-sha256\$i=100000\$[a-f0-9]{32}\$[a-f0-9]{64}$/);
   });
 
   it('uses a random salt for each call', async () => {

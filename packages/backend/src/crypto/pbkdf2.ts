@@ -2,11 +2,14 @@
  * PBKDF2-SHA256 password hashing with a self-describing storage format.
  *
  * This module replaces the legacy SHA-256(salt + password) scheme with a
- * computationally expensive key derivation function (OWASP 2023 minimum:
- * 600,000 iterations). The serialized format makes future algorithm upgrades
- * explicit and unambiguous:
+ * computationally expensive key derivation function. The serialized format
+ * makes future algorithm upgrades explicit and unambiguous:
  *
- *   $pbkdf2-sha256$i=600000$<salt_hex>$<hash_hex>
+ *   $pbkdf2-sha256$i=100000$<salt_hex>$<hash_hex>
+ *
+ * Note: Cloudflare Workers' Web Crypto implementation caps PBKDF2 iterations
+ * at 100,000 (see workerd issue #1346). We therefore use 100,000 as the
+ * default, which is the strongest value currently supported on the platform.
  *
  * Backward compatibility: `verifyPassword` automatically detects legacy hashes
  * (plain 32-char hex salt + 64-char hex SHA-256) and falls back to the old
@@ -15,7 +18,7 @@
  * @module crypto/pbkdf2
  */
 
-const DEFAULT_ITERATIONS = 600_000;
+const DEFAULT_ITERATIONS = 100_000;
 const DEFAULT_SALT_BYTES = 16;
 const DEFAULT_KEY_LENGTH_BYTES = 32;
 const PREFIX = '$pbkdf2-sha256$';

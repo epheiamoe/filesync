@@ -4,7 +4,8 @@
  * PUT /api/admin/password  — Change admin password (requires current password)
  *
  * Security changes:
- *   - New passwords are stored with PBKDF2-SHA256 (600k iterations).
+ *   - New passwords are stored with PBKDF2-SHA256 (100,000 iterations, the
+ *     maximum iteration count supported by Cloudflare Workers' Web Crypto).
  *   - Successful changes are written to the audit log.
  *
  * @module admin/password

@@ -75,10 +75,10 @@ Why: Cloudflare's hibernatable WebSocket API minimizes billing. The DO sleeps wh
 Auth middleware checks `epheia_session` cookie first (browser sessions), then falls back to `Authorization: Bearer` header (API/CLI). Three login methods: admin password, API key, temp credential (8-char Crockford base32 code).
 
 #### 2.2 Password Hashing (PBKDF2-SHA256)
-Admin passwords are hashed with **PBKDF2-SHA256** using **600,000 iterations** (OWASP 2023 minimum recommendation), a 16-byte random salt, and 32-byte derived key. The stored format is self-describing:
+Admin passwords are hashed with **PBKDF2-SHA256** using **100,000 iterations** (the maximum supported by Cloudflare Workers' Web Crypto implementation), a 16-byte random salt, and 32-byte derived key. The stored format is self-describing:
 
-```text
-$pbkdf2-sha256$i=600000$<salt_hex>$<hash_hex>
+```
+$pbkdf2-sha256$i=100000$<salt_hex>$<hash_hex>
 ```
 
 The system still recognizes legacy `SHA-256(salt + password)` hashes and automatically re-hashes them to PBKDF2 on the next successful login.

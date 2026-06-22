@@ -25,7 +25,7 @@ describe('Password verification', () => {
   it('should verify correctly hashed PBKDF2 passwords', async () => {
     const password = 'SecureP@ss1';
     const hashed = await hashPassword(password);
-    expect(hashed).toMatch(/^\$pbkdf2-sha256\$i=600000\$/);
+    expect(hashed).toMatch(/^\$pbkdf2-sha256\$i=100000\$/);
 
     const valid = await verifyPassword(password, hashed);
     expect(valid).toBe(true);
