@@ -65,20 +65,20 @@ cd packages/frontend && npx tsc --noEmit
 
 ```bash
 # Apply schema
-npx wrangler d1 execute filesync-db --file packages/backend/db/schema.sql --remote
+npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/schema.sql --remote
 
 # Apply seed data (creates admin account)
-npx wrangler d1 execute filesync-db --file packages/backend/db/seed.sql --remote
+npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/seed.sql --remote
 
 # Run arbitrary SQL
-npx wrangler d1 execute filesync-db --command "SELECT * FROM rooms" --remote
+npx wrangler d1 execute filesync-db-v2 --command "SELECT * FROM rooms" --remote
 
 # Local D1 (for dev)
-npx wrangler d1 execute filesync-db --file packages/backend/db/schema.sql --local
+npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/schema.sql --local
 
 # Audit log table (added during security remediation)
-npx wrangler d1 execute filesync-db --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
-npx wrangler d1 execute filesync-db --file packages/backend/db/migrations/0003_add_audit_log.sql --local
+npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
+npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/migrations/0003_add_audit_log.sql --local
 ```
 
 ## Build
@@ -96,8 +96,12 @@ pnpm build:frontend
 Before deploying to production, confirm that `CORS_ALLOWED_ORIGINS` and rate-limit variables are set in `packages/backend/wrangler.jsonc` (or via CI environment variables / wrangler secrets). The production deployment uses the following resources:
 
 - Worker: `filesync-api`
-- D1 Database: `filesync-db`
-- KV Namespace: `EPHEIA_FILES_KV`
+- D1 Database: `filesync-db-v2`
+- KV Namespace: `FILESYNC_KV_V2`
+- R2 Bucket: `filesync-v2`
+- Pages Project: `epheia-files`
+
+> Note: Original resources (`filesync-db`, `EPHEIA_FILES_KV`, `filesync`) were rotated after their IDs appeared in git history. Old resources are left for manual cleanup.
 - R2 Bucket: `filesync`
 - Pages Project: `epheia-files`
 

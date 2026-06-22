@@ -121,9 +121,24 @@ Cloudflare KV 是最终一致性存储，不适合作为精确的分布式计数
 
 **关键操作：**
 
-- Playwright 测试前确认没有遗留的 rate-limit KV 键；若有，执行 `wrangler kv:key delete --binding EPHEIA_FILES_KV --remote` 清理 `ratelimit:user:admin:block`、`ratelimit:user:admin:fail` 以及当前 IP 维度键。
+- Playwright 测试前确认没有遗留的 rate-limit KV 键；若有，执行 `wrangler kv:key delete --binding KV --remote` 清理 `ratelimit:user:admin:block`、`ratelimit:user:admin:fail` 以及当前 IP 维度键。
 - 测试脚本失败后检查 `Retry-After` 头，避免在封禁期间重试。
 - 为测试环境单独准备测试账号或临时提高阈值，避免锁死生产 `admin`。
+
+### 6.5 资源 ID 泄露后的轮换
+
+`packages/backend/wrangler.jsonc` 曾被 git 跟踪，导致 D1 database_id、KV namespace id、R2 bucket name 暴露在公开仓库历史中。虽然这些 ID 本身不是密钥，但为降低被组合利用的风险，我们为生产环境创建了全新的 v2 资源：
+
+- D1: `filesync-db-v2`
+- KV: `FILESYNC_KV_V2`
+- R2: `filesync-v2`
+
+**关键操作：**
+
+- 更新 `wrangler.jsonc` 中的 bindings，重新部署 Worker。
+- 更新 `AGENTS.local.md` 中的资源映射。
+- 旧资源保留供手动确认后删除；删除前确保没有未迁移的数据或依赖。
+- 未来始终将 `wrangler.jsonc` 保持在 `.gitignore` 中，仅提交 `wrangler.jsonc.template`。
 
 ---
 
