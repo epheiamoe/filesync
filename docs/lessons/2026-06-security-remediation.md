@@ -18,7 +18,8 @@
 
 ### 后续注意
 
-- 上线后监控 Workers CPU 耗时；若 600k 迭代触发 CPU 限制，可逐步降低，但不低于 210,000。
+- Cloudflare Workers Web Crypto 当前将 PBKDF2 迭代数硬性上限设为 100,000（见 workerd issue #1346）。尝试使用 600,000 或 210,000 等更高值会在生产环境触发 `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`，导致登录完全不可用。当前代码默认使用 100,000，这是平台支持的最大值。
+- 上线后监控登录成功率与 `/api/auth/login` 的 CPU 耗时；若平台未来放宽限制，应通过 `DEFAULT_ITERATIONS` 单点提升迭代数，无需修改存储格式。
 - 旧验证路径应在所有活跃账户完成重哈希后再移除。
 
 ## 2. CORS 通配符 + credentials 的风险
