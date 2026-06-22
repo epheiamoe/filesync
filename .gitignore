@@ -17,5 +17,10 @@ AGENTS.local.md
 packages/backend/wrangler.jsonc
 packages/frontend/test-results/
 
+# Agent swarm process artifacts and generated wiki
+.agent-swarm/
+.wiki/
+
+# Legacy paths (kept for backward compatibility)
 .wiki/temp
 .wiki/sessions/
