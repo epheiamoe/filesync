@@ -4,6 +4,7 @@ packages/frontend/dist/
 .cache/
 .env
 .env.local
+.env.test
 .wrangler/
 .swarm/
 out-of-date/
@@ -14,6 +15,7 @@ Thumbs.db
 *.png
 AGENTS.local.md
 packages/backend/wrangler.jsonc
+packages/frontend/test-results/
 
 .wiki/temp
 .wiki/sessions/
