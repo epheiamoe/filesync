@@ -84,7 +84,49 @@ Cloudflare KV 是最终一致性存储，不适合作为精确的分布式计数
 - 吊销时先从 KV 读取 key 数据，若存在 `audit_id` 则按 `UPDATE ... WHERE id = ? AND type = 'api_key'` 精确吊销。
 - 对无 `audit_id` 的旧 KV 数据，回退到 `code_hash` 匹配。
 
-### 后续注意
+## 6. 生产部署教训
 
-- 所有凭证生命周期操作都应携带持久化 ID，避免依赖派生值作为唯一匹配条件。
-- 后续若统一审计脱敏策略，需同步更新 `actor_id` 的存储方式。
+### 6.1 CORS 白名单必须显式配置
+
+生产环境首次部署后，`CORS_ALLOWED_ORIGINS` 缺失导致后端反射任意 `Origin`，配合 `credentials: true` 相当于允许任何网站带凭据调用 API。修复方式是在 `wrangler.jsonc` 的 `vars` 中显式写入精确 origin，例如 `https://epheia-files.pages.dev`，并重新部署。
+
+**关键操作：**
+
+- 部署前检查 `wrangler.jsonc` 中 `CORS_ALLOWED_ORIGINS` 非空且不含 `*`。
+- 部署后用 curl 分别测试合法 origin 和非法 origin，确认合法 origin 返回 `Access-Control-Allow-Origin: <exact-origin>`，非法 origin 不返回该头。
+
+### 6.2 管理员密码必须记录在安全位置
+
+部署后如果不知道当前 `admin` 密码，就无法通过登录测试验证后端是否可用。两次修复中均需要重新生成密码并更新 D1 `admin_accounts.password_hash`。
+
+**关键操作：**
+
+- 将当前生产 `admin` 密码记录在 `AGENTS.local.md` 或同等级别的安全笔记中（不要提交到 git）。
+- 每次重置密码后同步更新 `.env.test` 和 `AGENTS.local.md`。
+- 最终密码应通过前端“管理员面板 → 修改密码”或 `PUT /api/admin/password` 设置。
+
+### 6.3 Playwright 凭据通过 `.env.test` 注入
+
+端到端测试需要真实 `admin` 密码，但密码不能写入测试代码或 git。解决方案是使用 `packages/frontend/.env.test`，由 Playwright 配置通过 `dotenv` 加载，并将该文件加入 `.gitignore`。
+
+**关键操作：**
+
+- 提供 `.env.test.template` 作为可提交模板（不含真实密码）。
+- 每个开发者/CI 实例单独创建 `.env.test`。
+- 不要把 `.env.test` 加入任何共享存储或聊天记录。
+
+### 6.4 速率限制测试会触发 KV 锁定
+
+登录失败 5 次会触发用户名维度 + IP 维度共 15 分钟封禁。测试过程中若连续使用错误密码验证，会导致后续合法登录返回 `429 Too Many Requests`。
+
+**关键操作：**
+
+- Playwright 测试前确认没有遗留的 rate-limit KV 键；若有，执行 `wrangler kv:key delete --binding EPHEIA_FILES_KV --remote` 清理 `ratelimit:user:admin:block`、`ratelimit:user:admin:fail` 以及当前 IP 维度键。
+- 测试脚本失败后检查 `Retry-After` 头，避免在封禁期间重试。
+- 为测试环境单独准备测试账号或临时提高阈值，避免锁死生产 `admin`。
+
+---
+
+## 总结
+
+本次安全改进不仅涉及代码层面，更暴露了生产部署流程中的配置与凭证管理问题。长期维护时应将 `wrangler.jsonc` 的安全变量检查、D1 迁移应用、`.env.test` 注入和 KV 解锁命令文档化，纳入每次部署的标准操作程序。

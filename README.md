@@ -9,6 +9,8 @@
 2. 在 Dashboard 启用 **R2**
 3. 安装 [wrangler](https://developers.cloudflare.com/workers/wrangler/) 和 pnpm
 
+:warning: **生产部署前，请在 `packages/backend/wrangler.jsonc` 中配置 `CORS_ALLOWED_ORIGINS` 为精确的 Pages origin。** 如果缺少该变量，生产环境会反射任意 Origin，允许恶意站点带凭据调用 API。
+
 ### 快速开始
 
 ```bash

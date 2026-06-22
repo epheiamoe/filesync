@@ -1,6 +1,6 @@
 # filesync — Architecture & Current State
 
-> Last updated: 2026-06-22 after security remediation commits `3921337`, `f856f88`
+> Last updated: 2026-06-23 after production deployment + Playwright e2e verification (commits `591751f`, `69727fa`)
 
 ## Overview
 
@@ -139,9 +139,11 @@ This isolates auth from the WebSocket upgrade handler.
 CORS is configured via the `CORS_ALLOWED_ORIGINS` environment variable:
 
 - Development: `"*"` reflects any origin.
-- Production: comma-separated list of exact origins (e.g. `https://app.filesync.pages.dev,https://filesync.pages.dev`).
+- Production: comma-separated list of exact origins (e.g. `https://epheia-files.pages.dev`).
 
 When a whitelist is set, the `origin` callback returns the matched origin verbatim (never `*`) so that `credentials: true` remains valid. Unmatched origins receive `null` and CORS requests are blocked.
+
+**Production note:** The production deployment sets `CORS_ALLOWED_ORIGINS` to the exact Pages origin in `wrangler.jsonc`. If the variable is missing, the server falls back to reflecting any `Origin`, which allows credential-bearing requests from arbitrary origins. Always validate that the variable is present and does not contain `*` before deploying.
 
 ### Login Rate Limiting
 Login attempts are rate-limited using Cloudflare KV with two independent dimensions:
@@ -151,7 +153,7 @@ Login attempts are rate-limited using Cloudflare KV with two independent dimensi
 | Client IP | `ratelimit:ip:{ip}:fail` / `:block` | Defend against distributed password spraying from many IPs |
 | Username | `ratelimit:user:{username}:fail` / `:block` | Defend against IP rotation targeting the same account |
 
-Default configuration:
+All three parameters are configurable via environment variables:
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -161,8 +163,10 @@ Default configuration:
 
 Responses use HTTP `429 Too Many Requests` with `Retry-After` header and a JSON body containing `code: 'RATE_LIMITED'`.
 
+**Operational note:** The current production deployment uses the defaults above. If a legitimate account is locked during testing, delete the relevant KV keys (e.g. `wrangler kv:key delete --binding KV ratelimit:user:admin:block`).
+
 ### Audit Logging
-A minimal audit log is written to the D1 `audit_log` table. Recorded events include:
+A minimal audit log is written to the D1 `audit_log` table. The table is created by migration `packages/backend/db/migrations/0003_add_audit_log.sql` and has been applied to the production D1 database. Recorded events include:
 
 - `login_success` / `login_failed`
 - `password_changed`
