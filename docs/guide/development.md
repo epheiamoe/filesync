@@ -75,6 +75,10 @@ npx wrangler d1 execute filesync-db --command "SELECT * FROM rooms" --remote
 
 # Local D1 (for dev)
 npx wrangler d1 execute filesync-db --file packages/backend/db/schema.sql --local
+
+# Audit log table (added during security remediation)
+npx wrangler d1 execute filesync-db --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
+npx wrangler d1 execute filesync-db --file packages/backend/db/migrations/0003_add_audit_log.sql --local
 ```
 
 ## Build
@@ -142,9 +146,45 @@ The frontend auto-detects environment:
 
 Deployment URLs are tracked in `AGENTS.local.md` (gitignored).
 
+### Security Configuration
+
+The backend reads the following optional vars from `env` / `wrangler.jsonc`:
+
+| Variable | Default | Recommended Production Value |
+|----------|---------|------------------------------|
+| `CORS_ALLOWED_ORIGINS` | reflects any origin | comma-separated exact origins, no `*` |
+| `RATE_LIMIT_WINDOW_SECONDS` | 300 | 300 |
+| `RATE_LIMIT_MAX_FAILURES` | 5 | 5 |
+| `RATE_LIMIT_BLOCK_SECONDS` | 900 | 900 |
+
+Example `wrangler.jsonc` snippet:
+
+```jsonc
+"vars": {
+  "CORS_ALLOWED_ORIGINS": "https://app.filesync.pages.dev,https://filesync.pages.dev",
+  "RATE_LIMIT_WINDOW_SECONDS": 300,
+  "RATE_LIMIT_MAX_FAILURES": 5,
+  "RATE_LIMIT_BLOCK_SECONDS": 900
+}
+```
+
+For production, set `CORS_ALLOWED_ORIGINS` via wrangler secret or CI environment variable rather than committing the list.
+
 ## Auth Flow
 
 1. `POST /api/auth/login` → returns session token + sets `epheia_session` HttpOnly cookie
 2. All subsequent requests carry cookie (browser) or `Authorization: Bearer` header (API)
 3. Middleware validates token against KV on each request
-4. Admin can create temp credentials (6-char codes) and API keys
+4. Admin can create temp credentials (8-char Crockford base32 codes) and API keys
+
+## Production Deployment Checklist
+
+Before deploying to production after the security remediation:
+
+- [ ] Apply D1 migration `packages/backend/db/migrations/0003_add_audit_log.sql`
+- [ ] Set `CORS_ALLOWED_ORIGINS` to the exact production frontend origin(s); verify it does not contain `*`
+- [ ] Review `RATE_LIMIT_*` values; raise `RATE_LIMIT_MAX_FAILURES` if your users sit behind large NATs
+- [ ] Confirm admin password hash will be auto-upgraded from legacy SHA-256 on the next successful login
+- [ ] Verify `pnpm test` and `pnpm lint` pass locally
+- [ ] Run a staging login with an old SHA-256 hash to confirm PBKDF2 re-hash succeeds
+- [ ] After go-live, monitor Workers CPU time for PBKDF2 600k iterations under real load

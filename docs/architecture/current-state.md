@@ -1,6 +1,6 @@
 # filesync — Architecture & Current State
 
-> Last updated: 2026-06-22 after commit `0e63179`
+> Last updated: 2026-06-22 after security remediation commits `3921337`, `f856f88`
 
 ## Overview
 
@@ -18,7 +18,7 @@ filesync is an **end-to-end encrypted (E2EE) file sync + ephemeral chat tool** r
 | Files | R2 (object storage, chunked upload) |
 | Sessions / Config | KV (TTL-based expiry, no cleanup needed) |
 | Cron | Wrangler Cron Triggers (hourly cleanup via `scheduled()`) |
-| Auth | Cookie (`epheia_session` HttpOnly) + `Authorization: Bearer` fallback |
+| Auth | Cookie (`epheia_session` HttpOnly) + `Authorization: Bearer` fallback; PBKDF2-SHA256 password hashing; 256-bit session tokens |
 | Validation | Zod |
 | Testing | Vitest + `@cloudflare/vitest-pool-workers` |
 | Typescript | v5.4+ |
@@ -69,8 +69,37 @@ Client A                          Server (Blind Proxy)                     Clien
 ### 1. Hibernatable DO WebSocket (one-per-room)
 Why: Cloudflare's hibernatable WebSocket API minimizes billing. The DO sleeps when no messages are in flight and wakes only on `webSocketMessage`, `webSocketClose`, `webSocketError`, or HTTP fetch. Multiple clients in the same room share one DO instance via `idFromName(roomCode)`.
 
-### 2. Cookie + Bearer Auth
-Auth middleware checks `epheia_session` cookie first (browser sessions), then falls back to `Authorization: Bearer` header (API/CLI). Three login methods: admin password, API key, temp credential (6-char alphanumeric code).
+### 2. Authentication & Authorization
+
+#### 2.1 Cookie + Bearer Auth
+Auth middleware checks `epheia_session` cookie first (browser sessions), then falls back to `Authorization: Bearer` header (API/CLI). Three login methods: admin password, API key, temp credential (8-char Crockford base32 code).
+
+#### 2.2 Password Hashing (PBKDF2-SHA256)
+Admin passwords are hashed with **PBKDF2-SHA256** using **600,000 iterations** (OWASP 2023 minimum recommendation), a 16-byte random salt, and 32-byte derived key. The stored format is self-describing:
+
+```text
+$pbkdf2-sha256$i=600000$<salt_hex>$<hash_hex>
+```
+
+The system still recognizes legacy `SHA-256(salt + password)` hashes and automatically re-hashes them to PBKDF2 on the next successful login.
+
+#### 2.3 Session Token Entropy
+Session tokens are generated with `crypto.getRandomValues(new Uint8Array(32))` and encoded as 64-character hex strings (**256-bit entropy**). Legacy 32-character UUID tokens remain valid until they expire naturally.
+
+#### 2.4 Scope Constants
+Authorization scopes are centralized in `auth/scopes.ts`:
+
+```typescript
+SCOPES.ADMIN           // 'admin'
+SCOPES.CREATE_ROOMS    // 'create_rooms'
+SCOPES.JOIN_ROOM       // 'join_room'
+
+ADMIN_SCOPE            // 'admin create_rooms join_room'
+API_KEY_SCOPE          // 'create_rooms join_room'
+TEMP_CREDENTIAL_SCOPE  // 'join_room'
+```
+
+Middleware uses `hasScope(session, SCOPES.ADMIN)` for exact scope matching instead of substring checks.
 
 ### 3. client_fingerprint
 A persistent random string (`localStorage`-backed) sent with JoinRoom requests. Enables cross-session room member tracking without storing PII.
@@ -103,6 +132,55 @@ This isolates auth from the WebSocket upgrade handler.
   → DO iterates all connected WebSocket tags → sends event to each client
   → [Other clients] decrypt & display
 ```
+
+## Security Model
+
+### CORS Whitelist
+CORS is configured via the `CORS_ALLOWED_ORIGINS` environment variable:
+
+- Development: `"*"` reflects any origin.
+- Production: comma-separated list of exact origins (e.g. `https://app.filesync.pages.dev,https://filesync.pages.dev`).
+
+When a whitelist is set, the `origin` callback returns the matched origin verbatim (never `*`) so that `credentials: true` remains valid. Unmatched origins receive `null` and CORS requests are blocked.
+
+### Login Rate Limiting
+Login attempts are rate-limited using Cloudflare KV with two independent dimensions:
+
+| Dimension | KV Key Pattern | Purpose |
+|-----------|----------------|---------|
+| Client IP | `ratelimit:ip:{ip}:fail` / `:block` | Defend against distributed password spraying from many IPs |
+| Username | `ratelimit:user:{username}:fail` / `:block` | Defend against IP rotation targeting the same account |
+
+Default configuration:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `RATE_LIMIT_WINDOW_SECONDS` | 300 | Failure counting window |
+| `RATE_LIMIT_MAX_FAILURES` | 5 | Allowed failures per window |
+| `RATE_LIMIT_BLOCK_SECONDS` | 900 | Lockout duration after threshold exceeded |
+
+Responses use HTTP `429 Too Many Requests` with `Retry-After` header and a JSON body containing `code: 'RATE_LIMITED'`.
+
+### Audit Logging
+A minimal audit log is written to the D1 `audit_log` table. Recorded events include:
+
+- `login_success` / `login_failed`
+- `password_changed`
+- `credential_created` / `credential_revoked`
+- `file_recalled`
+- `cleanup_completed` / `orphan_deleted`
+
+Audit writes are non-blocking: failures are logged but never abort the primary request.
+
+### Orphan R2 Object Cleanup
+The hourly cron removes R2 objects that have no corresponding active row in `file_metadata`. Because both D1 and R2 are paginated, cleanup uses **two cursors** persisted in KV:
+
+- `cleanup:orphan_d1_offset` — offset into the D1 active-`r2_key` query.
+- `cleanup:orphan_cursor` — continuation cursor from R2 `list()`.
+
+Each run processes at most 1,000 active keys and 1,000 R2 objects. Keys not found in the active set are double-checked with `SELECT 1` before deletion to avoid race conditions with in-flight uploads.
+
+---
 
 ## Recent Fixes Summary (since commit `33ddabe`)
 
@@ -142,3 +220,17 @@ Defined in `packages/backend/db/schema.sql`. Key tables:
 - `files` — `id`, `room_id`, `r2_key`, `encrypted_filename`, `encrypted_meta`, `file_hash`, `visibility`, `expires_at`, `recalled_at`
 - `temp_credentials` — `code`, `expires_at`, `label`
 - `api_keys` — `key_hash`, `label`
+- `audit_log` — operation audit trail (added by migration `0003_add_audit_log.sql`)
+
+## Configuration
+
+Security-relevant environment variables and `wrangler.jsonc` vars:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed CORS origins. Use `"*"` only in development. | `https://app.filesync.pages.dev,https://filesync.pages.dev` |
+| `RATE_LIMIT_WINDOW_SECONDS` | Failure counting window for login rate limiting | `300` |
+| `RATE_LIMIT_MAX_FAILURES` | Allowed failures within the window | `5` |
+| `RATE_LIMIT_BLOCK_SECONDS` | Lockout duration after threshold exceeded | `900` |
+
+Production builds should validate that `CORS_ALLOWED_ORIGINS` is set and does not contain `*`.
