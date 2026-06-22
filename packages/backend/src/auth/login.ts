@@ -18,10 +18,9 @@
 import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
-import { verifyPassword, hashPassword, needsRehash } from '../crypto/hash';
-import { sha256 } from '../crypto/hash';
+import { verifyPassword, hashPassword, needsRehash, sha256 } from '../crypto/hash';
 import { createSession } from './session';
-import { ADMIN_SCOPE, API_KEY_SCOPE, TEMP_CREDENTIAL_SCOPE, SCOPES } from './scopes';
+import { ADMIN_SCOPE, API_KEY_SCOPE, TEMP_CREDENTIAL_SCOPE } from './scopes';
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, getClientIP } from './rate-limit';
 import { logAudit } from '../audit/logger';
 

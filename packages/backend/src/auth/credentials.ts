@@ -103,7 +103,7 @@ export async function handleCreateCredential(
     ).bind(auditId, codeHash, 'admin', expiresAt, now.toISOString()).run();
     auditRowId = auditId;
   } catch (err) {
-    // Log but don't fail — credential is already in KV
+    // [Debt: structured logging] Log but don't fail — credential is already in KV.
     console.error('Failed to insert credential audit:', err);
   }
 
@@ -265,18 +265,20 @@ export async function handleCreateApiKey(
   const apiKeyPrefix = apiKey.slice(0, 8);
   const now = new Date().toISOString();
 
+  // Audit log in D1
+  const auditId = generateId();
+  let auditRowId: string | null = null;
+
   // Store in KV (no TTL — persists until revoked)
   const keyData = {
     scope: API_KEY_SCOPE,
     created_by: 'admin',
     created_at: now,
     label: parsed.data.label,
+    audit_id: auditId,
   };
   await c.env.KV.put(`apikey:${keyHash}`, JSON.stringify(keyData));
 
-  // Audit log in D1
-  const auditId = generateId();
-  let auditRowId: string | null = null;
   // API keys don't expire by default
   const farFutureExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   try {
@@ -286,6 +288,7 @@ export async function handleCreateApiKey(
     ).bind(auditId, apiKeyPrefix, 'admin', farFutureExpiry, now).run();
     auditRowId = auditId;
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to insert API key audit:', err);
   }
 
@@ -326,23 +329,41 @@ export async function handleRevokeApiKey(
     return c.json({ success: false, error: 'API key hash required', code: 'VALIDATION_ERROR' }, 400);
   }
 
+  const now = new Date().toISOString();
+  let affectedRows = 0;
+
   // Delete from KV
+  const raw = await c.env.KV.get(`apikey:${keyHashParam}`);
   await c.env.KV.delete(`apikey:${keyHashParam}`);
 
   // Find and mark as revoked in D1
-  const now = new Date().toISOString();
-  let affectedRows = 0;
   try {
-    // Find the audit record by matching the first 8 chars of the api_key
-    // Since we only store api_key_prefix (first 8 chars), we do a best-effort match
-    const result = await c.env.DB.prepare(
-      `UPDATE credential_audit SET revoked_at = ?
-       WHERE type = 'api_key' AND revoked_at IS NULL
-       ORDER BY created_at DESC
-       LIMIT 1`
-    ).bind(now).run();
-    affectedRows = (result as any).meta?.changes ?? 0;
+    let keyData: { audit_id?: string } | null = null;
+    if (raw) {
+      try {
+        keyData = JSON.parse(raw) as { audit_id?: string };
+      } catch {
+        // malformed KV data, fall through to fallback matching
+      }
+    }
+
+    if (keyData?.audit_id) {
+      const result = await c.env.DB.prepare(
+        `UPDATE credential_audit SET revoked_at = ?
+         WHERE id = ? AND type = 'api_key'`
+      ).bind(now, keyData.audit_id).run();
+      affectedRows = (result as any).meta?.changes ?? 0;
+    } else {
+      // Fallback for legacy KV entries created before audit_id was stored:
+      // match by code_hash, which for api_key records stores the key SHA-256 hash.
+      const result = await c.env.DB.prepare(
+        `UPDATE credential_audit SET revoked_at = ?
+         WHERE type = 'api_key' AND code_hash = ? AND revoked_at IS NULL`
+      ).bind(now, keyHashParam).run();
+      affectedRows = (result as any).meta?.changes ?? 0;
+    }
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to update API key revocation in audit:', err);
   }
 

@@ -107,11 +107,11 @@ describe('Orphan R2 cleanup', () => {
 
     db.setResponse(
       `SELECT fm.r2_key
-         FROM file_metadata fm
-         JOIN rooms r ON r.id = fm.room_id
-         WHERE fm.recalled_at IS NULL
-           AND r.deleted_at IS NULL
-         LIMIT ? OFFSET ?`,
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.recalled_at IS NULL
+         AND r.deleted_at IS NULL
+       LIMIT ? OFFSET ?`,
       { all: [{ r2_key: 'rooms/1234/file-active' }] }
     );
 
@@ -134,11 +134,11 @@ describe('Orphan R2 cleanup', () => {
 
     db.setResponse(
       `SELECT fm.r2_key
-         FROM file_metadata fm
-         JOIN rooms r ON r.id = fm.room_id
-         WHERE fm.recalled_at IS NULL
-           AND r.deleted_at IS NULL
-         LIMIT ? OFFSET ?`,
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.recalled_at IS NULL
+         AND r.deleted_at IS NULL
+       LIMIT ? OFFSET ?`,
       { all: [] }
     );
 
@@ -152,7 +152,7 @@ describe('Orphan R2 cleanup', () => {
     expect(r2.deleted).toHaveLength(0);
   });
 
-  it('persists cursor when R2 list is truncated', async () => {
+  it('persists R2 cursor when R2 list is truncated', async () => {
     const db = new MockD1();
     const r2 = new MockR2([{ key: 'rooms/1234/file-1', size: 10 }], 'next-page-token');
     const kv = new MockKV();
@@ -160,11 +160,11 @@ describe('Orphan R2 cleanup', () => {
 
     db.setResponse(
       `SELECT fm.r2_key
-         FROM file_metadata fm
-         JOIN rooms r ON r.id = fm.room_id
-         WHERE fm.recalled_at IS NULL
-           AND r.deleted_at IS NULL
-         LIMIT ? OFFSET ?`,
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.recalled_at IS NULL
+         AND r.deleted_at IS NULL
+       LIMIT ? OFFSET ?`,
       { all: [] }
     );
 
@@ -175,5 +175,34 @@ describe('Orphan R2 cleanup', () => {
     await handleScheduled(env);
 
     expect(await kv.get('cleanup:orphan_cursor')).toBe('next-page-token');
+    expect(await kv.get('cleanup:orphan_d1_offset')).toBe('0');
+  });
+
+  it('advances D1 offset and clears R2 cursor when R2 list completes but D1 batch is full', async () => {
+    const db = new MockD1();
+    const r2 = new MockR2([{ key: 'rooms/1234/file-1', size: 10 }]);
+    const kv = new MockKV();
+    const env = makeEnv(db, r2, kv);
+
+    // Simulate a full D1 batch (1000 keys) so the handler knows there may be more D1 rows.
+    const keys = Array.from({ length: 1000 }, (_, i) => ({ r2_key: `rooms/1234/active-${i}` }));
+    db.setResponse(
+      `SELECT fm.r2_key
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.recalled_at IS NULL
+         AND r.deleted_at IS NULL
+       LIMIT ? OFFSET ?`,
+      { all: keys }
+    );
+
+    db.setResponse('SELECT 1 as one FROM file_metadata WHERE r2_key = ? LIMIT 1', {
+      first: null,
+    });
+
+    await handleScheduled(env);
+
+    expect(await kv.get('cleanup:orphan_cursor')).toBeNull();
+    expect(await kv.get('cleanup:orphan_d1_offset')).toBe('1000');
   });
 });

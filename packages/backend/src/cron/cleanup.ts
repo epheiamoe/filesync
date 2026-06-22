@@ -110,10 +110,12 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
           // Broadcast is best-effort — deletion already succeeded.
         }
       } catch (err) {
+        // [Debt: structured logging]
         console.error('Failed to clean expired file:', row.id, err);
       }
     }
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to query expired files:', err);
   }
 
@@ -170,10 +172,12 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
 
         destroyedRooms++;
       } catch (err) {
+        // [Debt: structured logging]
         console.error('Failed to destroy inactive room:', room.id, err);
       }
     }
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to query inactive rooms:', err);
   }
 
@@ -226,6 +230,7 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
       }
     }
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to delete expired messages:', err);
   }
 
@@ -244,45 +249,50 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
 
     cleanedCredentials = (credResult as any).meta?.changes || 0;
   } catch (err) {
+    // [Debt: structured logging]
     console.error('Failed to clean expired credentials:', err);
   }
 
   // ---- e. Orphan R2 cleanup ----
-  // Loads all active r2_keys from D1 into a Set, then pages through R2 objects.
-  // A persistent cursor in KV lets long buckets resume across cron runs.
+  // Processes R2 objects against active r2_keys in bounded batches.
+  // Two persistent cursors in KV let long-running buckets resume across cron runs:
+  //   - cleanup:orphan_d1_offset  → D1 active-key pagination offset
+  //   - cleanup:orphan_cursor     → R2 list pagination cursor
   const R2_BATCH_SIZE = 1000;
   const ACTIVE_KEY_BATCH = 1000;
+  const CURSOR_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
   try {
-    const activeKeys = new Set<string>();
-
-    // Load active r2_keys in batches to avoid unbounded memory in large DBs.
-    let offset = 0;
-    while (true) {
-      const activeRows = await env.DB.prepare(
-        `SELECT fm.r2_key
-         FROM file_metadata fm
-         JOIN rooms r ON r.id = fm.room_id
-         WHERE fm.recalled_at IS NULL
-           AND r.deleted_at IS NULL
-         LIMIT ? OFFSET ?`
-      ).bind(ACTIVE_KEY_BATCH, offset).all<{ r2_key: string }>();
-
-      for (const row of activeRows.results || []) {
-        if (row.r2_key) activeKeys.add(row.r2_key);
-      }
-
-      const rowsReturned = (activeRows.results || []).length;
-      if (rowsReturned < ACTIVE_KEY_BATCH) break;
-      offset += ACTIVE_KEY_BATCH;
+    // Resume from previous cursors if present
+    let d1Offset = 0;
+    const savedD1Offset = await env.KV.get('cleanup:orphan_d1_offset');
+    if (savedD1Offset) {
+      const parsed = parseInt(savedD1Offset, 10);
+      if (!Number.isNaN(parsed)) d1Offset = parsed;
     }
 
-    // Resume from previous cursor if present
-    let cursor: string | undefined;
-    const savedCursor = await env.KV.get('cleanup:orphan_cursor');
-    if (savedCursor) cursor = savedCursor;
+    const activeKeys = new Set<string>();
 
-    const listed = await env.FILES.list({ limit: R2_BATCH_SIZE, cursor });
+    // Load one batch of active r2_keys from D1.
+    const activeRows = await env.DB.prepare(
+      `SELECT fm.r2_key
+       FROM file_metadata fm
+       JOIN rooms r ON r.id = fm.room_id
+       WHERE fm.recalled_at IS NULL
+         AND r.deleted_at IS NULL
+       LIMIT ? OFFSET ?`
+    ).bind(ACTIVE_KEY_BATCH, d1Offset).all<{ r2_key: string }>();
+
+    for (const row of activeRows.results || []) {
+      if (row.r2_key) activeKeys.add(row.r2_key);
+    }
+
+    // Resume R2 list from previous cursor
+    let r2Cursor: string | undefined;
+    const savedCursor = await env.KV.get('cleanup:orphan_cursor');
+    if (savedCursor) r2Cursor = savedCursor;
+
+    const listed = await env.FILES.list({ limit: R2_BATCH_SIZE, cursor: r2Cursor });
 
     for (const obj of listed.objects) {
       if (!activeKeys.has(obj.key)) {
@@ -305,20 +315,42 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
               details: { size: obj.size },
             });
           } catch (err) {
+            // [Debt: structured logging]
             console.error('[cleanup] failed to delete orphan R2 object:', obj.key, err);
           }
         }
       }
     }
 
+    // Cursor persistence strategy:
+    // 1. If R2 list is truncated, save the R2 cursor and keep the current D1 offset
+    //    so the next cron continues from the same D1 batch.
+    // 2. If R2 list completed but D1 returned a full batch, advance the D1 offset
+    //    and clear the R2 cursor so the next cron processes the next D1 batch.
+    // 3. If both are exhausted, reset both cursors.
+    const d1BatchFull = (activeRows.results || []).length === ACTIVE_KEY_BATCH;
+
     if (listed.truncated && listed.cursor) {
       await env.KV.put('cleanup:orphan_cursor', listed.cursor, {
-        expirationTtl: 7 * 24 * 60 * 60, // 7 days
+        expirationTtl: CURSOR_TTL_SECONDS,
+      });
+      // Do not advance D1 offset while still paging through R2 for this batch.
+      await env.KV.put('cleanup:orphan_d1_offset', String(d1Offset), {
+        expirationTtl: CURSOR_TTL_SECONDS,
+      });
+    } else if (d1BatchFull) {
+      // R2 list finished for this D1 batch; advance D1 offset next cron.
+      await env.KV.delete('cleanup:orphan_cursor');
+      await env.KV.put('cleanup:orphan_d1_offset', String(d1Offset + ACTIVE_KEY_BATCH), {
+        expirationTtl: CURSOR_TTL_SECONDS,
       });
     } else {
+      // Fully completed.
       await env.KV.delete('cleanup:orphan_cursor');
+      await env.KV.delete('cleanup:orphan_d1_offset');
     }
   } catch (err) {
+    // [Debt: structured logging]
     console.error('[cleanup] failed to run orphan R2 cleanup:', err);
   }
 

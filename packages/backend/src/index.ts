@@ -61,32 +61,43 @@ function parseAllowedOrigins(raw?: string): string[] {
   if (raw.trim() === '*') return ['*'];
   return raw
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => o.trim().toLowerCase())
     .filter(Boolean);
 }
 
-app.use('*', cors({
-  origin: (origin, c) => {
-    const allowed = parseAllowedOrigins(c.env.CORS_ALLOWED_ORIGINS);
+/**
+ * Build Hono CORS options from environment.
+ * Exported for unit testing.
+ */
+export function createCorsOptions(env: AppEnv) {
+  const allowed = parseAllowedOrigins(env.CORS_ALLOWED_ORIGINS);
 
-    // Development default: allow any origin by reflecting it.
-    if (allowed.length === 0 || allowed.includes('*')) {
-      return origin || '*';
-    }
+  return {
+    origin: (origin: string) => {
+      // Development default: allow any origin by reflecting it.
+      if (allowed.length === 0 || allowed.includes('*')) {
+        return origin || '*';
+      }
 
-    // Production whitelist: exact match required.
-    if (allowed.includes(origin)) {
-      return origin;
-    }
+      // Production whitelist: exact match required (case-insensitive).
+      if (allowed.includes(origin.toLowerCase())) {
+        return origin;
+      }
 
-    return null;
-  },
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
-  credentials: true,
-  maxAge: 86400,
-}));
+      return null;
+    },
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] as string[],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],
+    credentials: true,
+    maxAge: 86400,
+  };
+}
+
+app.use('*', (c, next) => {
+  const corsOptions = createCorsOptions(c.env);
+  return cors(corsOptions)(c, next);
+});
 
 // ---- Auth Middleware ----
 // Cookie-based auth: reads epheia_session cookie.
@@ -231,6 +242,7 @@ app.notFound((c) => {
 
 // ---- Error Handler ----
 app.onError((err, c) => {
+  // [Debt: structured logging]
   console.error('Unhandled error:', err);
   return c.json(
     {
@@ -256,10 +268,12 @@ export default {
     switch (controller.cron) {
       case '0 * * * *': {
         const result = await handleScheduled(env);
+        // [Debt: structured logging]
         console.log('[cron] cleanup complete:', JSON.stringify(result));
         break;
       }
       default:
+        // [Debt: structured logging]
         console.log('[cron] unhandled cron schedule:', controller.cron);
     }
   },

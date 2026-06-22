@@ -15,6 +15,7 @@ import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import { hashPassword, verifyPassword } from '../crypto/hash';
 import { SCOPES } from '../auth/scopes';
+import { hasScope } from '../auth/session';
 import { getClientIP } from '../auth/rate-limit';
 import { logAudit } from '../audit/logger';
 
@@ -25,7 +26,7 @@ const passwordSchema = z.object({
 
 export async function handleChangePassword(c: Context<AppContext>): Promise<Response> {
   const session = c.get('session');
-  if (!session || !session.scope?.includes(SCOPES.ADMIN)) {
+  if (!session || !hasScope(session, SCOPES.ADMIN)) {
     return c.json({ success: false, error: 'Admin access required', code: 'FORBIDDEN' }, 403);
   }
 

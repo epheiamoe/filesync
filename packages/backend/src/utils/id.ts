@@ -1,6 +1,9 @@
 /**
  * ID generation utilities for filesync.
- * All IDs use crypto.randomUUID() for randomness with no external dependencies.
+ *
+ * Primary keys (generateId) use UUID v4. Session tokens and temporary codes
+ * use crypto.getRandomValues for higher entropy. No external dependencies.
+ *
  * @module utils/id
  */
 

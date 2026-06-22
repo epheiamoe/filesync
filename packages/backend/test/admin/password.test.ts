@@ -162,6 +162,22 @@ describe('handleChangePassword', () => {
     expect((response.body as any).code).toBe('UNAUTHORIZED');
   });
 
+  it('rejects sessions with scope containing admin as substring', async () => {
+    const db = new MockD1();
+    const env = makeEnv(db);
+
+    const { c, response } = createMockContext(
+      env,
+      { account_type: 'api_key', scope: 'room_admin create_rooms join_room' },
+      { current_password: 'old', new_password: 'newlongpassword' },
+      { 'cf-connecting-ip': '1.2.3.4' }
+    );
+
+    await handleChangePassword(c);
+
+    expect(response.status).toBe(403);
+  });
+
   it('rejects non-admin sessions', async () => {
     const db = new MockD1();
     const env = makeEnv(db);
