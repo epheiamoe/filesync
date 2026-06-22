@@ -15,7 +15,7 @@ import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString, encryptText, encryptFile, encodeShareString } from '@/lib/crypto';
-import { parseDeviceLabel } from '@/lib/device';
+import { parseDeviceLabel, getDisplayLabel } from '@/lib/device';
 import { RoomSocket } from '@/lib/ws';
 import { TabBar } from '@/components/ui/TabBar';
 import { Button } from '@/components/ui/Button';
@@ -27,6 +27,7 @@ import { TransferPage } from '@/components/transfer/TransferPage';
 import { UploadProgress } from '@/components/transfer/UploadProgress';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { QRShare } from '@/components/shared/QRShare';
+import { MemberListModal } from '@/components/ui/MemberListModal';
 import { buildLoginUrl } from '@/lib/url';
 import type { MessageDTO, OnlineMember, FileMetaDTO } from '@/lib/store';
 
@@ -82,6 +83,8 @@ export function RoomPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [fullQrUrl, setFullQrUrl] = useState<string>('');
   const [wsConnected, setWsConnected] = useState(false);
+  const [membersModalOpen, setMembersModalOpen] = useState(false);
+  const memberTriggerRef = useRef<HTMLButtonElement>(null);
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -276,19 +279,22 @@ export function RoomPage() {
         case 'member_join': {
           // Incrementally add a member to the online list.
           // RoomDO broadcasts this on subscribe (including to the joiner themselves).
+          // The next `presence` snapshot will reconcile this to the canonical list.
           const payload = event.payload as { session_id: string; device_label: string };
           if (!payload.session_id) break;
           useStore.setState((state) => {
             if (state.onlineMembers.some((m) => m.session_id === payload.session_id)) {
               return state;
             }
+            const deviceLabel = payload.device_label || 'Unknown';
             return {
               onlineMembers: [
                 ...state.onlineMembers,
                 {
                   session_id: payload.session_id,
-                  device_label: payload.device_label || 'Unknown',
-                  display_label: payload.device_label || 'Unknown',
+                  device_label: deviceLabel,
+                  display_label: getDisplayLabel(deviceLabel, payload.session_id),
+                  short_id: payload.session_id.slice(0, 4),
                 },
               ],
             };
@@ -734,18 +740,36 @@ export function RoomPage() {
             <code className="text-display-sm font-display text-ink">
               {currentRoom.roomCode}
             </code>
-            <span className="flex items-center gap-1.5 text-xs">
+            <button
+              ref={memberTriggerRef}
+              type="button"
+              onClick={() => setMembersModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full px-2 py-1 hover:bg-canvas-card transition-colors"
+              aria-label={t('rooms.onlineMembers')}
+            >
               <span
-                className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-success animate-pulse' : 'bg-error'}`}
+                className={`w-2 h-2 rounded-full shrink-0 ${wsConnected ? 'bg-success animate-pulse' : 'bg-error'}`}
                 aria-label={wsConnected ? t('rooms.wsConnected') : t('rooms.wsDisconnected')}
                 role="status"
               />
+              <span className="text-success shrink-0">
+                {onlineMembers.length} {t('rooms.online')}
+              </span>
               {onlineMembers.length > 0 && (
-                <span className="text-success">
-                  {onlineMembers.length} {t('rooms.online')}
+                <span className="text-muted truncate max-w-[12rem] hidden sm:inline">
+                  {onlineMembers
+                    .slice(0, 3)
+                    .map((m) => m.display_label)
+                    .join(', ')}
+                  {onlineMembers.length > 3 && (
+                    <span className="text-muted">
+                      {' '}
+                      +{onlineMembers.length - 3}
+                    </span>
+                  )}
                 </span>
               )}
-            </span>
+            </button>
             {(() => {
               const key = getRoomKey(code!);
               if (!key) return null;
@@ -900,6 +924,17 @@ export function RoomPage() {
           />
         );
       })()}
+      {/* Online Members Modal */}
+      <MemberListModal
+        isOpen={membersModalOpen}
+        onClose={() => {
+          setMembersModalOpen(false);
+          // Return focus to the trigger button so keyboard users stay in context.
+          setTimeout(() => memberTriggerRef.current?.focus(), 0);
+        }}
+        members={onlineMembers}
+        currentSessionId={session?.token || ''}
+      />
     </div>
   );
 }

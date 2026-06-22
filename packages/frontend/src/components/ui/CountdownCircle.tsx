@@ -10,14 +10,19 @@
  *   - Orange-red (<20% remaining)
  *   - Red (expired — 0% remaining)
  *
- * Hovering the circle shows a native title tooltip with the remaining time.
+ * Clicking the circle shows a fixed-position tooltip with the remaining time.
+ * The tooltip is rendered via a portal on document.body so it cannot expand
+ * the chat container or trigger horizontal scrollbars.
+ *
+ * A native `title` attribute is kept as a hover/accessibility fallback.
  *
  * Why SVG instead of canvas:
  *   - Simpler DOM-based rendering, works with Tailwind
  *   - CSS transitions handle smooth color/offset changes
  *   - Accessible via role="timer" and aria-label
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { t } from '@/i18n';
 
 export interface CountdownCircleProps {
@@ -34,6 +39,9 @@ export interface CountdownCircleProps {
   /** Called once when the countdown reaches zero. Guarded against duplicate calls via useRef. */
   onExpired?: () => void;
 }
+
+/** Auto-hide delay for the click tooltip in milliseconds. */
+const TOOLTIP_HIDE_DELAY_MS = 3000;
 
 /** Format remaining milliseconds to a human-readable string. */
 function formatRemaining(ms: number): string {
@@ -60,6 +68,12 @@ export function CountdownCircle({
 }: CountdownCircleProps) {
   const [remaining, setRemaining] = useState(0);
   const [percent, setPercent] = useState(0);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
+
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Capture the initial remaining time as baseline when ttlSeconds is not provided.
   // This allows us to display a percentage even without an explicit TTL.
@@ -107,6 +121,103 @@ export function CountdownCircle({
     return () => clearInterval(interval);
   }, [expiresAt, ttlSeconds, onExpired]);
 
+  // Position the fixed tooltip relative to the button viewport rect.
+  const positionTooltip = useCallback(() => {
+    const button = buttonRef.current;
+    const tooltip = tooltipRef.current;
+    if (!button || !tooltip) return;
+
+    const rect = button.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const margin = 8;
+
+    // Default: show above the button, centered horizontally.
+    let top = rect.top - tooltipRect.height - margin;
+    let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+
+    // If there is not enough room above, flip to below the button.
+    if (top < margin) {
+      top = rect.bottom + margin;
+    }
+
+    // Clamp horizontally inside the viewport.
+    const maxLeft = window.innerWidth - tooltipRect.width - margin;
+    left = Math.max(margin, Math.min(left, maxLeft));
+
+    setTooltipStyle({
+      position: 'fixed',
+      top,
+      left,
+      zIndex: 9999,
+    });
+  }, []);
+
+  // Show tooltip on click and restart the auto-hide timer.
+  const handleClick = useCallback(() => {
+    setShowTooltip((prev) => !prev);
+  }, []);
+
+  // Position tooltip once it is rendered.
+  useEffect(() => {
+    if (!showTooltip) return;
+    positionTooltip();
+    // Re-position on resize/scroll to keep the tooltip anchored to the button.
+    window.addEventListener('resize', positionTooltip);
+    window.addEventListener('scroll', positionTooltip, true);
+    return () => {
+      window.removeEventListener('resize', positionTooltip);
+      window.removeEventListener('scroll', positionTooltip, true);
+    };
+  }, [showTooltip, positionTooltip]);
+
+  // Auto-hide after delay; clicking again resets the timer.
+  useEffect(() => {
+    if (!showTooltip) return;
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = setTimeout(() => {
+      setShowTooltip(false);
+    }, TOOLTIP_HIDE_DELAY_MS);
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+      }
+    };
+  }, [showTooltip]);
+
+  // Hide tooltip on outside click, ESC, or blur.
+  useEffect(() => {
+    if (!showTooltip) return;
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        buttonRef.current?.contains(target) ||
+        tooltipRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowTooltip(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowTooltip(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showTooltip]);
+
   // Determine color based on remaining percentage
   const color =
     remaining <= 0
@@ -125,48 +236,74 @@ export function CountdownCircle({
 
   const formattedTime = formatRemaining(remaining);
 
+  const tooltipContent =
+    remaining <= 0
+      ? t('transfer.expired')
+      : t('transfer.timeRemainingTooltip', { time: formattedTime });
+
   return (
-    <button
-      type="button"
-      className={`relative inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full ${className}`.trim()}
-      aria-label={t('transfer.timeRemaining', { time: formattedTime })}
-      title={remaining <= 0 ? t('transfer.expired') : formattedTime}
-      role="timer"
-      aria-live="polite"
-    >
-      <svg
-        viewBox={`0 0 ${size} ${size}`}
-        width={size}
-        height={size}
-        aria-hidden="true"
-        className="transform -rotate-90"
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handleClick}
+        onBlur={() => setShowTooltip(false)}
+        className={`relative inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full ${className}`.trim()}
+        aria-label={t('transfer.timeRemaining', { time: formattedTime })}
+        title={remaining <= 0 ? t('transfer.expired') : formattedTime}
+        aria-pressed={showTooltip}
+        role="timer"
+        aria-live="polite"
       >
-        {/* Background track */}
-        <circle
-          cx={center}
-          cy={center}
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          className="text-hairline opacity-25"
-        />
-        {/* Countdown arc */}
-        <circle
-          cx={center}
-          cy={center}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={dashoffset}
-          strokeLinecap="round"
-          style={{
-            transition: 'stroke-dashoffset 0.5s ease, stroke 0.5s ease',
-          }}
-        />
-      </svg>
-    </button>
+        <svg
+          viewBox={`0 0 ${size} ${size}`}
+          width={size}
+          height={size}
+          aria-hidden="true"
+          className="transform -rotate-90"
+        >
+          {/* Background track */}
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            className="text-hairline opacity-25"
+          />
+          {/* Countdown arc */}
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={dashoffset}
+            strokeLinecap="round"
+            style={{
+              transition: 'stroke-dashoffset 0.5s ease, stroke 0.5s ease',
+            }}
+          />
+        </svg>
+      </button>
+
+      {showTooltip &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            style={tooltipStyle}
+            className="pointer-events-none px-2.5 py-1.5 rounded-lg bg-ink/90 text-canvas text-xs shadow-lg whitespace-nowrap max-w-xs"
+            role="tooltip"
+            aria-hidden="false"
+          >
+            {tooltipContent}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

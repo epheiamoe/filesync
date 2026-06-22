@@ -57,3 +57,17 @@ export function getDeviceShortLabel(): string {
   }
   return label;
 }
+
+/**
+ * Build a deterministic display label from a device label and session id.
+ *
+ * The suffix is the first 4 characters of the session id, so identical
+ * device labels (e.g. two "Windows Chrome") are distinguishable in a
+ * stable, deterministic way.
+ *
+ * @example getDisplayLabel('Windows Chrome', 'a1b2c3d4...') → 'Windows Chrome#a1b2'
+ */
+export function getDisplayLabel(deviceLabel: string, sessionId: string): string {
+  const shortId = sessionId.slice(0, 4);
+  return `${deviceLabel}#${shortId}`;
+}

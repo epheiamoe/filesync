@@ -259,7 +259,7 @@ export interface ApiResponse<T = unknown> {
 
 export interface WsMessage {
   type: 'chat' | 'file_shared' | 'recall' | 'member_join' | 'member_leave'
-       | 'system' | 'message_expired' | 'file_expired';
+       | 'presence' | 'system' | 'message_expired' | 'file_expired';
   payload: unknown;
   sender_session_id: string;
   device_label: string;
@@ -284,7 +284,8 @@ export interface BroadcastEvent {
 export interface OnlineMember {
   session_id: string;
   device_label: string;
-  display_label: string; // with dedup suffix like "#2"
+  display_label: string; // with deterministic suffix like "#a1b2"
+  short_id?: string;     // first 4 chars of session_id, e.g. "a1b2"
 }
 
 export interface WsTicketResponse {

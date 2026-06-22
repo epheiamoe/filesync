@@ -23,30 +23,45 @@ function extractTag(tags: string[], prefix: string): string | null {
   return null;
 }
 
-// ---- Helper: Device label dedup (mirrors RoomDO.getOnlineMembers logic) ----
+// ---- Helper: Build display label with deterministic session suffix ----
 
-function deduplicatedMembers(
-  connections: { sessionId: string; deviceLabel: string }[]
+function displayLabel(deviceLabel: string, sessionId: string): string {
+  return `${deviceLabel}#${sessionId.slice(0, 4)}`;
+}
+
+// ---- Helper: Generate sorted online members (mirrors RoomDO.getOnlineMembers logic) ----
+
+function getOnlineMembers(
+  connections: { sessionId: string; deviceLabel: string }[],
 ): OnlineMember[] {
-  const labelCounts: Map<string, number> = new Map();
-  const members: OnlineMember[] = [];
+  const pairs = connections.map((conn) => ({
+    session_id: conn.sessionId,
+    device_label: conn.deviceLabel,
+  }));
 
-  for (const conn of connections) {
-    const count = (labelCounts.get(conn.deviceLabel) || 0) + 1;
-    labelCounts.set(conn.deviceLabel, count);
+  pairs.sort((a, b) => a.session_id.localeCompare(b.session_id));
 
-    const displayLabel = count === 1
-      ? conn.deviceLabel
-      : `${conn.deviceLabel} #${count}`;
+  return pairs.map(({ session_id, device_label }) => {
+    const shortId = session_id.slice(0, 4);
+    return {
+      session_id,
+      device_label,
+      display_label: displayLabel(device_label, session_id),
+      short_id: shortId,
+    };
+  });
+}
 
-    members.push({
-      session_id: conn.sessionId,
-      device_label: conn.deviceLabel,
-      display_label: displayLabel,
-    });
-  }
+// ---- Helper: Build a presence broadcast event (mirrors RoomDO.broadcastPresence logic) ----
 
-  return members;
+function buildPresenceEvent(members: OnlineMember[]): BroadcastEvent {
+  return {
+    type: 'presence',
+    payload: { members },
+    sender_session_id: 'system',
+    device_label: 'System',
+    timestamp: new Date().toISOString(),
+  };
 }
 
 // ---- Helper: Broadcast event to select sockets ----
@@ -99,7 +114,36 @@ describe('RoomDO tag extraction', () => {
   });
 });
 
-describe('RoomDO device label dedup', () => {
+describe('RoomDO online members', () => {
+  it('should sort members by session_id', () => {
+    const connections = [
+      { sessionId: 'zebra', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'alpha', deviceLabel: 'iPhone Safari' },
+      { sessionId: 'mango', deviceLabel: 'Mac Firefox' },
+    ];
+
+    const members = getOnlineMembers(connections);
+    expect(members.map((m) => m.session_id)).toEqual(['alpha', 'mango', 'zebra']);
+  });
+
+  it('should format display_label as device_label + session_id first 4 chars', () => {
+    const connections = [
+      { sessionId: 'a1b2c3d4', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'ef12abcd', deviceLabel: 'Windows Chrome' },
+    ];
+
+    const members = getOnlineMembers(connections);
+    expect(members).toHaveLength(2);
+    expect(members[0].display_label).toBe('Windows Chrome#a1b2');
+    expect(members[1].display_label).toBe('Windows Chrome#ef12');
+  });
+
+  it('should include short_id as session_id first 4 chars', () => {
+    const connections = [{ sessionId: 'a1b2c3d4', deviceLabel: 'Windows Chrome' }];
+    const members = getOnlineMembers(connections);
+    expect(members[0].short_id).toBe('a1b2');
+  });
+
   it('should not add suffix for unique labels', () => {
     const connections = [
       { sessionId: 's1', deviceLabel: 'Windows Chrome' },
@@ -107,42 +151,43 @@ describe('RoomDO device label dedup', () => {
       { sessionId: 's3', deviceLabel: 'Mac Firefox' },
     ];
 
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members).toHaveLength(3);
-    expect(members[0].display_label).toBe('Windows Chrome');
-    expect(members[1].display_label).toBe('iPhone Safari');
-    expect(members[2].display_label).toBe('Mac Firefox');
+    expect(members[0].display_label).toBe('Windows Chrome#s1');
+    expect(members[1].display_label).toBe('iPhone Safari#s2');
+    expect(members[2].display_label).toBe('Mac Firefox#s3');
   });
 
-  it('should add suffix for duplicate labels', () => {
+  it('should distinguish duplicate labels by deterministic session prefix', () => {
     const connections = [
-      { sessionId: 's1', deviceLabel: 'Windows Chrome' },
-      { sessionId: 's2', deviceLabel: 'Windows Chrome' },
-      { sessionId: 's3', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'aaaa', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'bbbb', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'cccc', deviceLabel: 'Windows Chrome' },
     ];
 
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members).toHaveLength(3);
-    expect(members[0].display_label).toBe('Windows Chrome');
-    expect(members[1].display_label).toBe('Windows Chrome #2');
-    expect(members[2].display_label).toBe('Windows Chrome #3');
+    expect(members[0].display_label).toBe('Windows Chrome#aaaa');
+    expect(members[1].display_label).toBe('Windows Chrome#bbbb');
+    expect(members[2].display_label).toBe('Windows Chrome#cccc');
   });
 
   it('should handle mixed unique and duplicate labels', () => {
     const connections = [
-      { sessionId: 's1', deviceLabel: 'Windows Chrome' },
-      { sessionId: 's2', deviceLabel: 'iPhone Safari' },
-      { sessionId: 's3', deviceLabel: 'Windows Chrome' },
-      { sessionId: 's4', deviceLabel: 'iPhone Safari' },
-      { sessionId: 's5', deviceLabel: 'Android Chrome' },
+      { sessionId: 'w1', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'i1', deviceLabel: 'iPhone Safari' },
+      { sessionId: 'w2', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'i2', deviceLabel: 'iPhone Safari' },
+      { sessionId: 'a1', deviceLabel: 'Android Chrome' },
     ];
 
-    const members = deduplicatedMembers(connections);
-    expect(members[0].display_label).toBe('Windows Chrome');
-    expect(members[1].display_label).toBe('iPhone Safari');
-    expect(members[2].display_label).toBe('Windows Chrome #2');
-    expect(members[3].display_label).toBe('iPhone Safari #2');
-    expect(members[4].display_label).toBe('Android Chrome');
+    const members = getOnlineMembers(connections);
+    // Sorted by session_id: a1, i1, i2, w1, w2
+    expect(members[0].display_label).toBe('Android Chrome#a1');
+    expect(members[1].display_label).toBe('iPhone Safari#i1');
+    expect(members[2].display_label).toBe('iPhone Safari#i2');
+    expect(members[3].display_label).toBe('Windows Chrome#w1');
+    expect(members[4].display_label).toBe('Windows Chrome#w2');
   });
 
   it('should preserve original device_label in output', () => {
@@ -151,11 +196,23 @@ describe('RoomDO device label dedup', () => {
       { sessionId: 's2', deviceLabel: 'Windows Chrome' },
     ];
 
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members[0].device_label).toBe('Windows Chrome');
-    expect(members[0].display_label).toBe('Windows Chrome');
+    expect(members[0].display_label).toBe('Windows Chrome#s1');
     expect(members[1].device_label).toBe('Windows Chrome');
-    expect(members[1].display_label).toBe('Windows Chrome #2');
+    expect(members[1].display_label).toBe('Windows Chrome#s2');
+  });
+
+  it('should handle session_id shorter than 4 chars', () => {
+    const members = getOnlineMembers([{ sessionId: 'abc', deviceLabel: 'Windows Chrome' }]);
+    expect(members[0].display_label).toBe('Windows Chrome#abc');
+    expect(members[0].short_id).toBe('abc');
+  });
+
+  it('should handle unknown device label', () => {
+    const members = getOnlineMembers([{ sessionId: 's1', deviceLabel: 'Unknown' }]);
+    expect(members[0].device_label).toBe('Unknown');
+    expect(members[0].display_label).toBe('Unknown#s1');
   });
 });
 
@@ -271,39 +328,47 @@ describe('RoomDO broadcast events', () => {
 
     expect(event.type).toBe('member_leave');
   });
+
+  it('should broadcast presence event with sorted members', () => {
+    const members = getOnlineMembers([
+      { sessionId: 'zebra', deviceLabel: 'Windows Chrome' },
+      { sessionId: 'alpha', deviceLabel: 'iPhone Safari' },
+    ]);
+    const event = buildPresenceEvent(members);
+
+    expect(event.type).toBe('presence');
+    expect(event.sender_session_id).toBe('system');
+    expect(event.device_label).toBe('System');
+    expect((event.payload as { members: OnlineMember[] }).members).toHaveLength(2);
+    expect((event.payload as { members: OnlineMember[] }).members[0].session_id).toBe('alpha');
+  });
 });
 
 describe('RoomDO edge cases', () => {
   it('should handle empty room (no connections)', () => {
     const connections: { sessionId: string; deviceLabel: string }[] = [];
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members).toHaveLength(0);
   });
 
   it('should handle single connection', () => {
     const connections = [{ sessionId: 's1', deviceLabel: 'Mac Safari' }];
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members).toHaveLength(1);
-    expect(members[0].display_label).toBe('Mac Safari');
+    expect(members[0].display_label).toBe('Mac Safari#s1');
     expect(members[0].session_id).toBe('s1');
   });
 
   it('should handle many duplicate labels', () => {
     const connections = Array.from({ length: 10 }, (_, i) => ({
-      sessionId: `s${i + 1}`,
+      sessionId: `s${String(i + 1).padStart(2, '0')}`,
       deviceLabel: 'Windows Chrome',
     }));
 
-    const members = deduplicatedMembers(connections);
+    const members = getOnlineMembers(connections);
     expect(members).toHaveLength(10);
-    expect(members[0].display_label).toBe('Windows Chrome');
-    expect(members[9].display_label).toBe('Windows Chrome #10');
-  });
-
-  it('should handle unknown device label', () => {
-    const connections = [{ sessionId: 's1', deviceLabel: 'Unknown' }];
-    const members = deduplicatedMembers(connections);
-    expect(members[0].device_label).toBe('Unknown');
+    expect(members[0].display_label).toBe('Windows Chrome#s01');
+    expect(members[9].display_label).toBe('Windows Chrome#s10');
   });
 
   it('should handle broadcast to zero sockets', () => {
@@ -363,7 +428,7 @@ describe('WsMessage type compatibility', () => {
 
   it('should support all valid broadcast event types', () => {
     const validTypes: BroadcastEvent['type'][] = [
-      'chat', 'file_shared', 'recall', 'member_join', 'member_leave', 'system',
+      'chat', 'file_shared', 'recall', 'member_join', 'member_leave', 'presence', 'system',
     ];
 
     for (const type of validTypes) {

@@ -14,7 +14,8 @@
  * **Tag system:**
  * - Each WebSocket is tagged with: [roomCode, sessionId, deviceLabel]
  * - Tags enable efficient member tracking and targeted messaging
- * - Device label dedup: when listing members, duplicate labels get "#2", "#3" suffixes
+ * - Device label display: deterministic suffix from session_id first 4 chars,
+ *   e.g. "Windows Chrome#a1b2", so all clients see identical labels.
  *
  * **HTTP API (called by Worker via `roomStub.fetch()`):**
  * - POST /internal/broadcast  → relay event to all connected clients
@@ -111,7 +112,7 @@ export class RoomDO extends DurableObject {
       // Tags are already set at accept time from URL params (passed by Worker).
       // We broadcast member_join to all connected clients.
       if (data.event === 'subscribe' && data.roomCode && data.sessionId) {
-        // Broadcast member_join to all connected clients
+        // Broadcast member_join to all connected clients (backward compat for old clients)
         const joinEvent: BroadcastEvent = {
           type: 'member_join',
           payload: {
@@ -123,6 +124,10 @@ export class RoomDO extends DurableObject {
           timestamp: new Date().toISOString(),
         };
         await this.broadcastToAll(joinEvent);
+
+        // Then broadcast a full presence snapshot so every client converges
+        // to the same ordered member list.
+        await this.broadcastPresence();
         return;
       }
     } catch {
@@ -156,6 +161,9 @@ export class RoomDO extends DurableObject {
     const remaining = this.ctx.getWebSockets().filter((s) => s !== ws);
     if (remaining.length > 0) {
       await this.broadcastTo(leaveEvent, remaining);
+      // Broadcast a full presence snapshot so remaining clients converge
+      // to the same ordered member list.
+      await this.broadcastPresence();
     }
 
     // No explicit cleanup needed — DO handles connection removal automatically
@@ -213,37 +221,61 @@ export class RoomDO extends DurableObject {
   // ---- Member Tracking ----
 
   /**
-   * Get list of online members with deduplicated device labels.
+   * Get list of online members with deterministic display labels.
    *
-   * Dedup logic:
-   *   - First occurrence of "Windows Chrome" → display as "Windows Chrome"
-   *   - Second occurrence → "Windows Chrome #2"
-   *   - Third → "Windows Chrome #3"
+   * Sorting:
+   *   - Sockets are sorted by session_id in lexicographic order so every
+   *     client receives the same array order.
+   *
+   * Display label:
+   *   - "{device_label}#{session_id.slice(0, 4)}" e.g. "Windows Chrome#a1b2"
+   *   - Same device labels are distinguished by the deterministic session prefix.
    *
    * This is purely for display — the actual connections remain separate.
    */
   private getOnlineMembers(): OnlineMember[] {
     const sockets = this.ctx.getWebSockets();
-    const labelCounts: Map<string, number> = new Map();
-    const members: OnlineMember[] = [];
 
-    for (const ws of sockets) {
+    // Collect session/device pairs first so we can sort deterministically.
+    const pairs = sockets.map((ws) => {
       const tags = this.ctx.getTags(ws);
-      const sessionId = this.extractTag(tags, TAG_SESSION) || 'unknown';
-      const deviceLabel = this.extractTag(tags, TAG_DEVICE) || 'Unknown';
+      return {
+        session_id: this.extractTag(tags, TAG_SESSION) || 'unknown',
+        device_label: this.extractTag(tags, TAG_DEVICE) || 'Unknown',
+      };
+    });
 
-      // Track label occurrences for dedup
-      const count = (labelCounts.get(deviceLabel) || 0) + 1;
-      labelCounts.set(deviceLabel, count);
+    // Sort by session_id so all clients see identical member order.
+    pairs.sort((a, b) => a.session_id.localeCompare(b.session_id));
 
-      const displayLabel = count === 1
-        ? deviceLabel
-        : `${deviceLabel} #${count}`;
+    return pairs.map(({ session_id, device_label }) => {
+      const shortId = session_id.slice(0, 4);
+      return {
+        session_id,
+        device_label,
+        display_label: `${device_label}#${shortId}`,
+        short_id: shortId,
+      };
+    });
+  }
 
-      members.push({ session_id: sessionId, device_label: deviceLabel, display_label: displayLabel });
-    }
-
-    return members;
+  /**
+   * Broadcast a full presence snapshot to all connected clients.
+   *
+   * This is called after every member join/leave so every client converges
+   * to the same ordered member list, even if incremental events were missed
+   * or reordered.
+   */
+  private async broadcastPresence(): Promise<void> {
+    const members = this.getOnlineMembers();
+    const event: BroadcastEvent = {
+      type: 'presence',
+      payload: { members },
+      sender_session_id: 'system',
+      device_label: 'System',
+      timestamp: new Date().toISOString(),
+    };
+    await this.broadcastToAll(event);
   }
 
   // ---- Utility ----
