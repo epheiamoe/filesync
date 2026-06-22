@@ -14,3 +14,6 @@ Thumbs.db
 *.png
 AGENTS.local.md
 packages/backend/wrangler.jsonc
+
+.wiki/temp
+.wiki/sessions/
