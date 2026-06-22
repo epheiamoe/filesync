@@ -91,14 +91,6 @@ export function MemberListModal({
     [],
   );
 
-  // Click overlay to close.
-  const handleOverlayClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === e.currentTarget) onClose();
-    },
-    [onClose],
-  );
-
   const titleId = 'member-list-modal-title';
 
   return (
@@ -110,17 +102,20 @@ export function MemberListModal({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
-          onClick={handleOverlayClick}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
         >
-          {/* Overlay */}
-          <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
+          {/* Overlay: click to close for pointer users. */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            aria-hidden="true"
+            onClick={onClose}
+          />
 
           {/* Modal panel */}
           <motion.div
             ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             initial={{ y: '100%', opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0 }}

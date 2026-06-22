@@ -19,7 +19,7 @@
  * Why SVG instead of canvas:
  *   - Simpler DOM-based rendering, works with Tailwind
  *   - CSS transitions handle smooth color/offset changes
- *   - Accessible via role="timer" and aria-label
+ *   - Accessible via aria-label describing remaining time
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -252,8 +252,6 @@ export function CountdownCircle({
         aria-label={t('transfer.timeRemaining', { time: formattedTime })}
         title={remaining <= 0 ? t('transfer.expired') : formattedTime}
         aria-pressed={showTooltip}
-        role="timer"
-        aria-live="polite"
       >
         <svg
           viewBox={`0 0 ${size} ${size}`}
