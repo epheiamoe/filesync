@@ -10,14 +10,14 @@
  *   - Orange-red (<20% remaining)
  *   - Red (expired — 0% remaining)
  *
- * Click toggles a tooltip showing formatted remaining time.
+ * Hovering the circle shows a native title tooltip with the remaining time.
  *
  * Why SVG instead of canvas:
  *   - Simpler DOM-based rendering, works with Tailwind
  *   - CSS transitions handle smooth color/offset changes
  *   - Accessible via role="timer" and aria-label
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { t } from '@/i18n';
 
 export interface CountdownCircleProps {
@@ -60,7 +60,6 @@ export function CountdownCircle({
 }: CountdownCircleProps) {
   const [remaining, setRemaining] = useState(0);
   const [percent, setPercent] = useState(0);
-  const [showTooltip, setShowTooltip] = useState(false);
 
   // Capture the initial remaining time as baseline when ttlSeconds is not provided.
   // This allows us to display a percentage even without an explicit TTL.
@@ -124,18 +123,14 @@ export function CountdownCircle({
   const circumference = 2 * Math.PI * radius;
   const dashoffset = circumference * (1 - percent / 100);
 
-  const handleClick = useCallback(() => {
-    setShowTooltip((prev) => !prev);
-  }, []);
-
   const formattedTime = formatRemaining(remaining);
 
   return (
     <button
       type="button"
       className={`relative inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full ${className}`.trim()}
-      onClick={handleClick}
       aria-label={t('transfer.timeRemaining', { time: formattedTime })}
+      title={remaining <= 0 ? t('transfer.expired') : formattedTime}
       role="timer"
       aria-live="polite"
     >
@@ -172,13 +167,6 @@ export function CountdownCircle({
           }}
         />
       </svg>
-
-      {/* Tooltip on click */}
-      {showTooltip && (
-        <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] text-muted whitespace-nowrap bg-canvas-card px-1.5 py-0.5 rounded shadow-sm z-10 pointer-events-none">
-          {remaining <= 0 ? t('transfer.expired') : formattedTime}
-        </span>
-      )}
     </button>
   );
 }

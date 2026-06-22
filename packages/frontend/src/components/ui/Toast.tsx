@@ -23,12 +23,12 @@ function ToastItem({ toast }: { toast: ToastType }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       className={`
-        flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[280px] max-w-[400px]
+        flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg max-w-2xl w-full
         ${typeStyles[toast.type]}
       `}
       role="alert"
@@ -53,7 +53,7 @@ export function ToastContainer() {
 
   return (
     <div
-      className="fixed bottom-6 right-6 z-[1100] flex flex-col gap-2"
+      className="fixed top-0 left-0 right-0 z-[1100] flex flex-col items-center pt-2 px-2 gap-2"
       aria-live="polite"
       aria-label={t('common.notifications')}
     >
