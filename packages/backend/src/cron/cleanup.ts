@@ -17,6 +17,7 @@
  */
 
 import type { AppEnv } from '../types';
+import { logAudit } from '../audit/logger';
 
 export interface CleanupResult {
   expiredFiles: number;
@@ -246,11 +247,93 @@ export async function handleScheduled(env: AppEnv): Promise<CleanupResult> {
     console.error('Failed to clean expired credentials:', err);
   }
 
-  // ---- e. Orphan R2 cleanup (lightweight) ----
-  // Full orphan detection requires R2 object listing, which is complex and rate-limited.
-  // For MVP, we skip this. R2 lifecycle rules can be used as a complementary approach.
-  // [Debt: MVP] Implement full orphan R2 cleanup via R2 lifecycle rules or a dedicated job.
-  orphanedObjects = 0;
+  // ---- e. Orphan R2 cleanup ----
+  // Loads all active r2_keys from D1 into a Set, then pages through R2 objects.
+  // A persistent cursor in KV lets long buckets resume across cron runs.
+  const R2_BATCH_SIZE = 1000;
+  const ACTIVE_KEY_BATCH = 1000;
+
+  try {
+    const activeKeys = new Set<string>();
+
+    // Load active r2_keys in batches to avoid unbounded memory in large DBs.
+    let offset = 0;
+    while (true) {
+      const activeRows = await env.DB.prepare(
+        `SELECT fm.r2_key
+         FROM file_metadata fm
+         JOIN rooms r ON r.id = fm.room_id
+         WHERE fm.recalled_at IS NULL
+           AND r.deleted_at IS NULL
+         LIMIT ? OFFSET ?`
+      ).bind(ACTIVE_KEY_BATCH, offset).all<{ r2_key: string }>();
+
+      for (const row of activeRows.results || []) {
+        if (row.r2_key) activeKeys.add(row.r2_key);
+      }
+
+      const rowsReturned = (activeRows.results || []).length;
+      if (rowsReturned < ACTIVE_KEY_BATCH) break;
+      offset += ACTIVE_KEY_BATCH;
+    }
+
+    // Resume from previous cursor if present
+    let cursor: string | undefined;
+    const savedCursor = await env.KV.get('cleanup:orphan_cursor');
+    if (savedCursor) cursor = savedCursor;
+
+    const listed = await env.FILES.list({ limit: R2_BATCH_SIZE, cursor });
+
+    for (const obj of listed.objects) {
+      if (!activeKeys.has(obj.key)) {
+        // Double-check D1 to avoid deleting an object whose metadata row was
+        // written just after the active-key snapshot (upload-in-progress race).
+        const stillReferenced = await env.DB.prepare(
+          'SELECT 1 as one FROM file_metadata WHERE r2_key = ? LIMIT 1'
+        ).bind(obj.key).first<{ one: number }>();
+
+        if (!stillReferenced) {
+          try {
+            await env.FILES.delete(obj.key);
+            orphanedObjects++;
+
+            await logAudit(env, {
+              action: 'orphan_deleted',
+              actor_type: 'system',
+              target_type: 'r2_object',
+              target_id: obj.key,
+              details: { size: obj.size },
+            });
+          } catch (err) {
+            console.error('[cleanup] failed to delete orphan R2 object:', obj.key, err);
+          }
+        }
+      }
+    }
+
+    if (listed.truncated && listed.cursor) {
+      await env.KV.put('cleanup:orphan_cursor', listed.cursor, {
+        expirationTtl: 7 * 24 * 60 * 60, // 7 days
+      });
+    } else {
+      await env.KV.delete('cleanup:orphan_cursor');
+    }
+  } catch (err) {
+    console.error('[cleanup] failed to run orphan R2 cleanup:', err);
+  }
+
+  await logAudit(env, {
+    action: 'cleanup_completed',
+    actor_type: 'system',
+    target_type: 'system',
+    details: {
+      expired_files: expiredFiles,
+      destroyed_rooms: destroyedRooms,
+      expired_messages: expiredMessages,
+      cleaned_credentials: cleanedCredentials,
+      orphaned_objects: orphanedObjects,
+    },
+  });
 
   return {
     expiredFiles,

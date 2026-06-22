@@ -1,13 +1,17 @@
 /**
  * Credentials management — admin-only endpoints.
  *
- * POST   /api/auth/credentials    → Create temp credential (6-char alphanumeric)
+ * POST   /api/auth/credentials    → Create temp credential (8-char Crockford base32)
  * GET    /api/auth/credentials    → List all credentials
  * DELETE /api/auth/credentials/:id → Revoke a credential
  * POST   /api/auth/api-keys       → Create API key (32-char hex)
  * DELETE /api/auth/api-keys/:keyHash → Revoke API key
  *
  * All endpoints require admin scope.
+ *
+ * Security changes:
+ *   - Scope strings centralized in `./scopes`
+ *   - Audit logging for credential creation and revocation
  *
  * @module auth/credentials
  */
@@ -18,6 +22,9 @@ import type { AppContext } from '../types';
 import { generateTempCode, generateApiKey, generateId } from '../utils/id';
 import { sha256 } from '../crypto/hash';
 import { hasScope } from './session';
+import { SCOPES, API_KEY_SCOPE, TEMP_CREDENTIAL_SCOPE } from './scopes';
+import { getClientIP } from './rate-limit';
+import { logAudit } from '../audit/logger';
 import type { SessionData } from '@filesync/shared';
 
 // ---- Helper: extract session from context ----
@@ -30,13 +37,17 @@ function requireAdmin(c: Context<AppContext>): SessionData | Response {
   if (!session) {
     return c.json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   }
-  if (!hasScope(session, 'admin')) {
+  if (!hasScope(session, SCOPES.ADMIN)) {
     return c.json(
       { success: false, error: 'Admin access required', code: 'FORBIDDEN' },
       403
     );
   }
   return session;
+}
+
+function auditActorId(session: SessionData): string {
+  return session.admin_id ?? 'admin';
 }
 
 // ---- POST /api/auth/credentials ----
@@ -74,7 +85,7 @@ export async function handleCreateCredential(
 
   // Store in KV with TTL
   const credData = {
-    scope: 'join_room',
+    scope: TEMP_CREDENTIAL_SCOPE,
     created_by: 'admin',
     expires_at: expiresAt,
   };
@@ -84,15 +95,30 @@ export async function handleCreateCredential(
 
   // Audit log in D1
   const auditId = generateId();
+  let auditRowId: string | null = null;
   try {
     await c.env.DB.prepare(
       `INSERT INTO credential_audit (id, type, code_hash, created_by, expires_at, created_at)
        VALUES (?, 'temp_credential', ?, ?, ?, ?)`
     ).bind(auditId, codeHash, 'admin', expiresAt, now.toISOString()).run();
+    auditRowId = auditId;
   } catch (err) {
     // Log but don't fail — credential is already in KV
     console.error('Failed to insert credential audit:', err);
   }
+
+  const ip = getClientIP(c);
+  const userAgent = c.req.header('User-Agent') ?? undefined;
+  await logAudit(c.env, {
+    action: 'credential_created',
+    actor_type: 'admin',
+    actor_id: auditActorId(sessionOrError),
+    target_type: 'temp_credential',
+    target_id: codeHash,
+    ip,
+    user_agent: userAgent,
+    details: { audit_id: auditRowId, label: parsed.data.label, expires_at: expiresAt },
+  });
 
   return c.json(
     {
@@ -192,6 +218,19 @@ export async function handleRevokeCredential(
     await c.env.KV.delete(`tempcred:${cred.code_hash}`);
   }
 
+  const ip = getClientIP(c);
+  const userAgent = c.req.header('User-Agent') ?? undefined;
+  await logAudit(c.env, {
+    action: 'credential_revoked',
+    actor_type: 'admin',
+    actor_id: auditActorId(sessionOrError),
+    target_type: cred.type,
+    target_id: cred.code_hash ?? id,
+    ip,
+    user_agent: userAgent,
+    details: { audit_id: id, revoked_at: now },
+  });
+
   return c.json({ success: true, data: { revoked_at: now } }, 200);
 }
 
@@ -228,7 +267,7 @@ export async function handleCreateApiKey(
 
   // Store in KV (no TTL — persists until revoked)
   const keyData = {
-    scope: 'create_rooms join_room',
+    scope: API_KEY_SCOPE,
     created_by: 'admin',
     created_at: now,
     label: parsed.data.label,
@@ -237,6 +276,7 @@ export async function handleCreateApiKey(
 
   // Audit log in D1
   const auditId = generateId();
+  let auditRowId: string | null = null;
   // API keys don't expire by default
   const farFutureExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   try {
@@ -244,9 +284,23 @@ export async function handleCreateApiKey(
       `INSERT INTO credential_audit (id, type, api_key_prefix, created_by, expires_at, created_at)
        VALUES (?, 'api_key', ?, ?, ?, ?)`
     ).bind(auditId, apiKeyPrefix, 'admin', farFutureExpiry, now).run();
+    auditRowId = auditId;
   } catch (err) {
     console.error('Failed to insert API key audit:', err);
   }
+
+  const ip = getClientIP(c);
+  const userAgent = c.req.header('User-Agent') ?? undefined;
+  await logAudit(c.env, {
+    action: 'credential_created',
+    actor_type: 'admin',
+    actor_id: auditActorId(sessionOrError),
+    target_type: 'api_key',
+    target_id: keyHash,
+    ip,
+    user_agent: userAgent,
+    details: { audit_id: auditRowId, label: parsed.data.label, prefix: apiKeyPrefix },
+  });
 
   return c.json(
     {
@@ -277,18 +331,33 @@ export async function handleRevokeApiKey(
 
   // Find and mark as revoked in D1
   const now = new Date().toISOString();
+  let affectedRows = 0;
   try {
     // Find the audit record by matching the first 8 chars of the api_key
     // Since we only store api_key_prefix (first 8 chars), we do a best-effort match
-    await c.env.DB.prepare(
+    const result = await c.env.DB.prepare(
       `UPDATE credential_audit SET revoked_at = ?
        WHERE type = 'api_key' AND revoked_at IS NULL
        ORDER BY created_at DESC
        LIMIT 1`
     ).bind(now).run();
+    affectedRows = (result as any).meta?.changes ?? 0;
   } catch (err) {
     console.error('Failed to update API key revocation in audit:', err);
   }
+
+  const ip = getClientIP(c);
+  const userAgent = c.req.header('User-Agent') ?? undefined;
+  await logAudit(c.env, {
+    action: 'credential_revoked',
+    actor_type: 'admin',
+    actor_id: auditActorId(sessionOrError),
+    target_type: 'api_key',
+    target_id: keyHashParam,
+    ip,
+    user_agent: userAgent,
+    details: { revoked_at: now, audit_rows_affected: affectedRows },
+  });
 
   return c.json({ success: true }, 200);
 }

@@ -23,19 +23,18 @@ export function generateRoomCode(): string {
   return num.toString().padStart(4, '0');
 }
 
+import { encodeBase32 } from '../crypto/base32';
+
 /**
- * Generate a 6-character alphanumeric temporary credential code.
- * Characters: A-Z (uppercase) + 0-9 (36 possible chars).
- * Total combinations: 36^6 ≈ 2.17 billion — sufficient for one-time use codes.
+ * Generate an 8-character Crockford base32 temporary credential code.
+ *
+ * 5 random bytes → 40 bits → 8 base32 characters. The Crockford alphabet
+ * excludes visually ambiguous characters (I, L, O, U), keeping the code easy
+ * to read aloud or transcribe while providing ~2.56 trillion combinations.
  */
 export function generateTempCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars[bytes[i] % chars.length];
-  }
-  return result;
+  const bytes = crypto.getRandomValues(new Uint8Array(5));
+  return encodeBase32(bytes, 0);
 }
 
 /**
@@ -62,9 +61,16 @@ export function generateSalt(): string {
 }
 
 /**
- * Generate a session token from a UUID.
- * Removes hyphens to produce a 32-character hex string.
+ * Generate a cryptographically random session token.
+ *
+ * Uses 32 bytes (256 bits) of entropy from `crypto.getRandomValues`, encoded
+ * as a 64-character lowercase hex string. This replaces the previous UUID v4
+ * based token (128 bits) while remaining backward compatible with older 32-char
+ * tokens stored in KV.
  */
 export function generateSessionToken(): string {
-  return crypto.randomUUID().replace(/-/g, '');
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }

@@ -16,6 +16,7 @@
  */
 
 import type { SessionData } from '@filesync/shared';
+import { generateSessionToken } from '../utils/id';
 
 /** TTL in seconds for each account type */
 const SESSION_TTL: Record<string, number> = {
@@ -26,7 +27,7 @@ const SESSION_TTL: Record<string, number> = {
 
 /**
  * Create a session in KV and return the token.
- * The token is generated as a UUID with hyphens removed (32 hex chars).
+ * The token is generated from 32 bytes of random entropy (64 hex chars).
  *
  * @param env - Worker environment with KV binding
  * @param accountType - 'admin', 'api_key', or 'temp_credential'
@@ -40,7 +41,7 @@ export async function createSession(
   scope: string,
   adminId?: string
 ): Promise<string> {
-  const token = crypto.randomUUID().replace(/-/g, '');
+  const token = generateSessionToken();
 
   const sessionData: SessionData & { created_at: string } = {
     account_type: accountType,

@@ -11,6 +11,12 @@ export interface Bindings {
   KV: KVNamespace;
   FILES: R2Bucket;
   RoomDO: DurableObjectNamespace;
+
+  // Configuration vars (set via wrangler.jsonc or secrets)
+  CORS_ALLOWED_ORIGINS?: string;
+  RATE_LIMIT_WINDOW_SECONDS?: string;
+  RATE_LIMIT_MAX_FAILURES?: string;
+  RATE_LIMIT_BLOCK_SECONDS?: string;
 }
 
 /** Custom variables set by middleware and available in route handlers */

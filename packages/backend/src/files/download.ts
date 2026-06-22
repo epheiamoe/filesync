@@ -24,6 +24,7 @@ import { z } from 'zod';
 import type { Context } from 'hono';
 import type { AppContext } from '../types';
 import type { FileMetaDTO, FileListResponse } from '@filesync/shared';
+import { logAudit } from '../audit/logger';
 
 // ---- Validation Schemas ----
 
@@ -503,6 +504,22 @@ export async function handleFileRecall(c: Context<AppContext>): Promise<Response
          updated_at = ?
      WHERE room_id = ?`
   ).bind(file.file_size, now, file.room_id).run();
+
+  const userAgent = c.req.header('User-Agent') ?? undefined;
+  await logAudit(c.env, {
+    action: 'file_recalled',
+    actor_type: session?.account_type ?? 'anonymous',
+    actor_id: sessionToken,
+    target_type: 'file',
+    target_id: fileId,
+    ip: c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || undefined,
+    user_agent: userAgent,
+    details: {
+      room_id: file.room_id,
+      initiated_by_admin: isAdmin,
+      initiated_by_uploader: isUploader,
+    },
+  });
 
   // Broadcast recall via RoomDO
   try {

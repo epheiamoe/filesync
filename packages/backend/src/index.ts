@@ -51,8 +51,36 @@ export { RoomDO } from './do/room';
 const app = new Hono<AppContext>();
 
 // ---- CORS Middleware ----
+// Origin whitelist is controlled by the CORS_ALLOWED_ORIGINS var.
+//   - "*" or unset → reflect request origin (development default)
+//   - comma-separated list → exact match only (production)
+// credentials: true is always kept, so the origin callback must never return "*"
+// in production.
+function parseAllowedOrigins(raw?: string): string[] {
+  if (!raw || raw.trim() === '') return [];
+  if (raw.trim() === '*') return ['*'];
+  return raw
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
 app.use('*', cors({
-  origin: (origin) => origin || '*',
+  origin: (origin, c) => {
+    const allowed = parseAllowedOrigins(c.env.CORS_ALLOWED_ORIGINS);
+
+    // Development default: allow any origin by reflecting it.
+    if (allowed.length === 0 || allowed.includes('*')) {
+      return origin || '*';
+    }
+
+    // Production whitelist: exact match required.
+    if (allowed.includes(origin)) {
+      return origin;
+    }
+
+    return null;
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['X-File-Encrypted', 'X-File-Id'],

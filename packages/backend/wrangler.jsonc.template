@@ -43,5 +43,13 @@
   ],
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    // CORS: set to "*" for local dev, or a comma-separated origin list for production.
+    "CORS_ALLOWED_ORIGINS": "*",
+    // Login rate-limit tuning.
+    "RATE_LIMIT_WINDOW_SECONDS": "300",
+    "RATE_LIMIT_MAX_FAILURES": "5",
+    "RATE_LIMIT_BLOCK_SECONDS": "900"
   }
 }

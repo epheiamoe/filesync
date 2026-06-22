@@ -44,15 +44,22 @@ describe('generateRoomCode', () => {
 });
 
 describe('generateTempCode', () => {
-  it('should return a 6-char alphanumeric string', () => {
+  it('should return an 8-character Crockford base32 string', () => {
     const code = generateTempCode();
-    expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    expect(code).toMatch(/^[0-9A-TV-Z]{8}$/);
   });
 
   it('should generate unique codes', () => {
     const codes = new Set(Array.from({ length: 100 }, () => generateTempCode()));
-    // With 36^6 combinations, 100 should all be unique
+    // With 32^8 combinations, 100 should all be unique
     expect(codes.size).toBe(100);
+  });
+
+  it('should avoid visually ambiguous characters', () => {
+    for (let i = 0; i < 50; i++) {
+      const code = generateTempCode();
+      expect(code).not.toMatch(/[ILOU]/);
+    }
   });
 });
 
@@ -76,13 +83,18 @@ describe('generateSalt', () => {
 });
 
 describe('generateSessionToken', () => {
-  it('should return a 32-char hex string (UUID without hyphens)', () => {
+  it('should return a 64-char hex string (256 bits of entropy)', () => {
     const token = generateSessionToken();
-    expect(token).toMatch(/^[a-f0-9]{32}$/);
+    expect(token).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('should not contain hyphens', () => {
     const token = generateSessionToken();
     expect(token).not.toContain('-');
+  });
+
+  it('should generate unique tokens', () => {
+    const tokens = new Set(Array.from({ length: 100 }, () => generateSessionToken()));
+    expect(tokens.size).toBe(100);
   });
 });

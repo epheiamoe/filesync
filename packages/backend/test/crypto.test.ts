@@ -107,20 +107,17 @@ describe('SHA-256', () => {
 });
 
 describe('Password hashing', () => {
-  it('should hash and verify password correctly', async () => {
-    const salt = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
-    const hashed = await hashPassword('test123', salt);
-    // Should be salt(32) + hash(64) = 96 chars
-    expect(hashed.length).toBe(96);
-    expect(hashed.startsWith(salt)).toBe(true);
+  it('should hash and verify password with PBKDF2 format', async () => {
+    const hashed = await hashPassword('test123');
+    // PBKDF2 format: $pbkdf2-sha256$i=...$salt$hash
+    expect(hashed).toMatch(/^\$pbkdf2-sha256\$i=\d+\$[a-f0-9]+\$[a-f0-9]+$/);
 
     const valid = await verifyPassword('test123', hashed);
     expect(valid).toBe(true);
   });
 
-  it('should reject wrong password', async () => {
-    const salt = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
-    const hashed = await hashPassword('correct', salt);
+  it('should reject wrong password against PBKDF2 hash', async () => {
+    const hashed = await hashPassword('correct');
     const valid = await verifyPassword('wrong', hashed);
     expect(valid).toBe(false);
   });
@@ -130,15 +127,13 @@ describe('Password hashing', () => {
     expect(valid).toBe(false);
   });
 
-  it('should produce different hashes with different salts', async () => {
-    const salt1 = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
-    const salt2 = 'f6e5d4c3b2a10987f6e5d4c3b2a10987';
-    const hash1 = await hashPassword('samepass', salt1);
-    const hash2 = await hashPassword('samepass', salt2);
+  it('should produce different hashes for the same password (random salt)', async () => {
+    const hash1 = await hashPassword('samepass');
+    const hash2 = await hashPassword('samepass');
     expect(hash1).not.toBe(hash2);
   });
 
-  it('should verify the seed admin password', async () => {
+  it('should still verify legacy SHA-256(salt + password) hashes', async () => {
     // Seed: salt=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6, password=admin123
     const storedHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a2ef14f9f7885c301271f725421f990a8145cee015023edda62805ad205efb99';
     const valid = await verifyPassword('admin123', storedHash);
