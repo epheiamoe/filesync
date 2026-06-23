@@ -139,11 +139,11 @@ This isolates auth from the WebSocket upgrade handler.
 CORS is configured via the `CORS_ALLOWED_ORIGINS` environment variable:
 
 - Development: `"*"` reflects any origin.
-- Production: comma-separated list of exact origins (e.g. `https://epheia-files.pages.dev`).
+- Production: comma-separated list of exact origins (e.g. `https://<your-pages>.pages.dev`).
 
 When a whitelist is set, the `origin` callback returns the matched origin verbatim (never `*`) so that `credentials: true` remains valid. Unmatched origins receive `null` and CORS requests are blocked.
 
-**Production note:** The production deployment sets `CORS_ALLOWED_ORIGINS` to the exact Pages origin in `wrangler.jsonc`. If the variable is missing, the server falls back to reflecting any `Origin`, which allows credential-bearing requests from arbitrary origins. Always validate that the variable is present and does not contain `*` before deploying.
+**Production note:** The production deployment sets `CORS_ALLOWED_ORIGINS` to the exact Pages origin in `wrangler.jsonc`. If the variable is missing, the server falls back to reflecting any `Origin`, which allows credential-bearing requests from arbitrary origins. Always validate that the variable is present and does not contain `*` before deploying. The actual production origin and resource names are tracked in `AGENTS.local.md` (gitignored).
 
 ### Login Rate Limiting
 Login attempts are rate-limited using Cloudflare KV with two independent dimensions:
@@ -163,10 +163,10 @@ All three parameters are configurable via environment variables:
 
 Responses use HTTP `429 Too Many Requests` with `Retry-After` header and a JSON body containing `code: 'RATE_LIMITED'`.
 
-**Operational note:** The current production deployment uses the defaults above. If a legitimate account is locked during testing, delete the relevant KV keys (e.g. `wrangler kv:key delete --binding KV ratelimit:user:admin:block`).
+**Operational note:** The current production deployment uses the defaults above. If a legitimate account is locked during testing, delete the relevant KV keys (e.g. `wrangler kv key delete --namespace-id <YOUR_KV_NAMESPACE_ID> ratelimit:user:admin:block`). The actual KV namespace ID is tracked in `AGENTS.local.md` (gitignored).
 
 ### Audit Logging
-A minimal audit log is written to the D1 `audit_log` table. The table is created by migration `packages/backend/db/migrations/0003_add_audit_log.sql` and has been applied to the production D1 database. Recorded events include:
+A minimal audit log is written to the D1 `audit_log` table. The table is created by migration `packages/backend/db/migrations/0003_add_audit_log.sql` and must be applied to the production D1 database. Recorded events include:
 
 - `login_success` / `login_failed`
 - `password_changed`
@@ -205,13 +205,15 @@ Each run processes at most 1,000 active keys and 1,000 R2 objects. Keys not foun
 
 ## Deployment
 
-| Resource | URL |
-|----------|-----|
-| Backend Worker | `https://filesync-api.epheia.workers.dev` |
-| Frontend Pages | `https://epheia-files.pages.dev` |
-| D1 Database | `filesync-db` |
-| R2 Bucket | `filesync` |
-| KV Namespace | `EPHEIA_FILES_KV` |
+| Resource | Placeholder | Notes |
+|----------|-------------|-------|
+| Backend Worker | `<YOUR_WORKER_URL>` | Cloudflare Worker URL |
+| Frontend Pages | `<YOUR_PAGES_URL>` | Cloudflare Pages URL |
+| D1 Database | `<YOUR_D1_DATABASE_NAME>` | D1 database name |
+| R2 Bucket | `<YOUR_R2_BUCKET_NAME>` | R2 bucket name |
+| KV Namespace | `<YOUR_KV_NAMESPACE_NAME>` | KV namespace name |
+
+Actual deployment values are tracked in `AGENTS.local.md` (gitignored).
 
 ## Database Schema
 

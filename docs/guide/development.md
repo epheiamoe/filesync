@@ -65,20 +65,20 @@ cd packages/frontend && npx tsc --noEmit
 
 ```bash
 # Apply schema
-npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/schema.sql --remote
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/schema.sql --remote
 
 # Apply seed data (creates admin account)
-npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/seed.sql --remote
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/seed.sql --remote
 
 # Run arbitrary SQL
-npx wrangler d1 execute filesync-db-v2 --command "SELECT * FROM rooms" --remote
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --command "SELECT * FROM rooms" --remote
 
 # Local D1 (for dev)
-npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/schema.sql --local
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/schema.sql --local
 
 # Audit log table (added during security remediation)
-npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
-npx wrangler d1 execute filesync-db-v2 --file packages/backend/db/migrations/0003_add_audit_log.sql --local
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/migrations/0003_add_audit_log.sql --local
 ```
 
 ## Build
@@ -93,17 +93,15 @@ pnpm build:frontend
 
 ### Production Deployment
 
-Before deploying to production, confirm that `CORS_ALLOWED_ORIGINS` and rate-limit variables are set in `packages/backend/wrangler.jsonc` (or via CI environment variables / wrangler secrets). The production deployment uses the following resources:
+Before deploying to production, confirm that `CORS_ALLOWED_ORIGINS` and rate-limit variables are set in `packages/backend/wrangler.jsonc` (or via CI environment variables / wrangler secrets). The production deployment uses the following resources, whose actual names and IDs are tracked in `AGENTS.local.md` (gitignored):
 
-- Worker: `filesync-api`
-- D1 Database: `filesync-db-v2`
-- KV Namespace: `FILESYNC_KV_V2`
-- R2 Bucket: `filesync-v2`
-- Pages Project: `epheia-files`
+- Worker: `<YOUR_WORKER_NAME>`
+- D1 Database: `<YOUR_D1_DATABASE_NAME>`
+- KV Namespace: `<YOUR_KV_NAMESPACE_NAME>`
+- R2 Bucket: `<YOUR_R2_BUCKET_NAME>`
+- Pages Project: `<YOUR_PAGES_PROJECT_NAME>`
 
 > Note: Original resources (`filesync-db`, `EPHEIA_FILES_KV`, `filesync`) were rotated after their IDs appeared in git history. Old resources are left for manual cleanup.
-- R2 Bucket: `filesync`
-- Pages Project: `epheia-files`
 
 Deploy steps:
 
@@ -115,12 +113,12 @@ npx wrangler deploy
 # 2. Apply D1 migrations
 cd packages/backend
 # Apply all pending migrations
-npx wrangler d1 migrations apply filesync-db --remote
+npx wrangler d1 migrations apply <YOUR_D1_DATABASE_NAME> --remote
 # Or apply a specific migration file
-npx wrangler d1 execute filesync-db --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
+npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/migrations/0003_add_audit_log.sql --remote
 
 # 3. Verify required vars are present
-# CORS_ALLOWED_ORIGINS must match the exact Pages origin, e.g. https://epheia-files.pages.dev
+# CORS_ALLOWED_ORIGINS must match the exact Pages origin, e.g. https://<your-pages>.pages.dev
 # RATE_LIMIT_WINDOW_SECONDS, RATE_LIMIT_MAX_FAILURES, RATE_LIMIT_BLOCK_SECONDS should be set
 ```
 
@@ -128,12 +126,12 @@ After deploying, verify CORS and rate-limit behavior:
 
 ```bash
 # Valid origin should echo the exact origin
-curl -i -H "Origin: https://epheia-files.pages.dev" \
-  https://filesync-api.epheia.workers.dev/api/health
+curl -i -H "Origin: <YOUR_CORS_ORIGIN>" \
+  <YOUR_WORKER_URL>/api/health
 
 # Invalid origin should not receive Access-Control-Allow-Origin
 curl -i -H "Origin: https://evil.example.com" \
-  https://filesync-api.epheia.workers.dev/api/health
+  <YOUR_WORKER_URL>/api/health
 ```
 
 ### Deploy Frontend to Pages
@@ -141,7 +139,7 @@ curl -i -H "Origin: https://evil.example.com" \
 ```bash
 cd packages/frontend
 npm run build
-npx wrangler pages deploy dist --project-name epheia-files
+npx wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT_NAME>
 ```
 
 ## End-to-End Testing
@@ -184,12 +182,12 @@ Screenshots and reports are written to `.agent-swarm/2026-06-22_deploy-e2e/scree
 ### Important Testing Notes
 
 - Credentials must be injected via `.env.test`. Never commit real credentials to git.
-- Repeated failed login attempts trigger KV rate-limit blocks. Before running login tests, ensure the current IP and `admin` user are not locked; if they are, delete the relevant KV keys:
+- Repeated failed login attempts trigger KV rate-limit blocks. Before running login tests, ensure the current IP and `admin` user are not locked; if they are, delete the relevant KV keys (actual KV namespace ID is in `AGENTS.local.md`):
   ```bash
-  npx wrangler kv:key delete --binding EPHEIA_FILES_KV ratelimit:user:admin:block --remote
-  npx wrangler kv:key delete --binding EPHEIA_FILES_KV ratelimit:user:admin:fail --remote
-  npx wrangler kv:key delete --binding EPHEIA_FILES_KV ratelimit:ip:<YOUR_IP>:block --remote
-  npx wrangler kv:key delete --binding EPHEIA_FILES_KV ratelimit:ip:<YOUR_IP>:fail --remote
+  npx wrangler kv key delete --namespace-id <YOUR_KV_NAMESPACE_ID> ratelimit:user:admin:block --remote
+  npx wrangler kv key delete --namespace-id <YOUR_KV_NAMESPACE_ID> ratelimit:user:admin:fail --remote
+  npx wrangler kv key delete --namespace-id <YOUR_KV_NAMESPACE_ID> ratelimit:ip:<YOUR_IP>:block --remote
+  npx wrangler kv key delete --namespace-id <YOUR_KV_NAMESPACE_ID> ratelimit:ip:<YOUR_IP>:fail --remote
   ```
 - The admin password used by Playwright should be recorded in `AGENTS.local.md` or another secure location; losing it will prevent future automated login tests.
 
@@ -233,9 +231,9 @@ filesync/
 
 The frontend auto-detects environment:
 - `import.meta.env.DEV` → connects to `localhost:8787` (backend)
-- Production → connects to `filesync-api.epheia.workers.dev`
+- Production → connects to `<YOUR_WORKER_URL>`
 
-Deployment URLs are tracked in `AGENTS.local.md` (gitignored).
+Deployment URLs and resource IDs are tracked in `AGENTS.local.md` (gitignored).
 
 ### Security Configuration
 
@@ -243,7 +241,7 @@ The backend reads the following optional vars from `env` / `wrangler.jsonc`:
 
 | Variable | Default | Recommended Production Value |
 |----------|---------|------------------------------|
-| `CORS_ALLOWED_ORIGINS` | reflects any origin | `https://epheia-files.pages.dev` (exact origin, no `*`) |
+| `CORS_ALLOWED_ORIGINS` | reflects any origin | `https://<your-pages>.pages.dev` (exact origin, no `*`) |
 | `RATE_LIMIT_WINDOW_SECONDS` | 300 | 300 |
 | `RATE_LIMIT_MAX_FAILURES` | 5 | 5 |
 | `RATE_LIMIT_BLOCK_SECONDS` | 900 | 900 |
@@ -252,7 +250,7 @@ Example `wrangler.jsonc` snippet:
 
 ```jsonc
 "vars": {
-  "CORS_ALLOWED_ORIGINS": "https://epheia-files.pages.dev",
+  "CORS_ALLOWED_ORIGINS": "https://<your-pages>.pages.dev",
   "RATE_LIMIT_WINDOW_SECONDS": "300",
   "RATE_LIMIT_MAX_FAILURES": "5",
   "RATE_LIMIT_BLOCK_SECONDS": "900"

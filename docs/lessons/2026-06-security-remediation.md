@@ -88,7 +88,7 @@ Cloudflare KV 是最终一致性存储，不适合作为精确的分布式计数
 
 ### 6.1 CORS 白名单必须显式配置
 
-生产环境首次部署后，`CORS_ALLOWED_ORIGINS` 缺失导致后端反射任意 `Origin`，配合 `credentials: true` 相当于允许任何网站带凭据调用 API。修复方式是在 `wrangler.jsonc` 的 `vars` 中显式写入精确 origin，例如 `https://epheia-files.pages.dev`，并重新部署。
+生产环境首次部署后，`CORS_ALLOWED_ORIGINS` 缺失导致后端反射任意 `Origin`，配合 `credentials: true` 相当于允许任何网站带凭据调用 API。修复方式是在 `wrangler.jsonc` 的 `vars` 中显式写入精确 origin，例如 `https://<your-pages>.pages.dev`，并重新部署。
 
 **关键操作：**
 
@@ -127,17 +127,17 @@ Cloudflare KV 是最终一致性存储，不适合作为精确的分布式计数
 
 ### 6.5 资源 ID 泄露后的轮换
 
-`packages/backend/wrangler.jsonc` 曾被 git 跟踪，导致 D1 database_id、KV namespace id、R2 bucket name 暴露在公开仓库历史中。虽然这些 ID 本身不是密钥，但为降低被组合利用的风险，我们为生产环境创建了全新的 v2 资源：
+`packages/backend/wrangler.jsonc` 曾被 git 跟踪，导致 D1 database_id、KV namespace id、R2 bucket name 暴露在公开仓库历史中。虽然这些 ID 本身不是密钥，但为降低被组合利用的风险，我们为生产环境创建了全新的 v2 资源（具体名称与 ID 记录在 `AGENTS.local.md`）：
 
-- D1: `filesync-db-v2`
-- KV: `FILESYNC_KV_V2`
-- R2: `filesync-v2`
+- D1: `filesync-db-v2` (example)
+- KV: `FILESYNC_KV_V2` (example)
+- R2: `filesync-v2` (example)
 
 **关键操作：**
 
 - 更新 `wrangler.jsonc` 中的 bindings，重新部署 Worker。
 - 更新 `AGENTS.local.md` 中的资源映射。
-- 旧资源保留供手动确认后删除；删除前确保没有未迁移的数据或依赖。
+- 旧资源保留供手动确认后删除；删除前确保没有未迁移的数据或依赖。具体旧资源名称与 ID 记录在 `AGENTS.local.md`。
 - 未来始终将 `wrangler.jsonc` 保持在 `.gitignore` 中，仅提交 `wrangler.jsonc.template`。
 
 ---
