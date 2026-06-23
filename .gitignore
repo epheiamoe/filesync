@@ -5,6 +5,8 @@ packages/frontend/dist/
 .env
 .env.local
 .env.test
+packages/frontend/.env
+packages/backend/.dev.vars
 .wrangler/
 .swarm/
 out-of-date/

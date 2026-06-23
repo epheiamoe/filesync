@@ -18,7 +18,9 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { outputFolder: '../.agent-swarm/2026-06-22_deploy-e2e/playwright-report' }]],
   use: {
-    baseURL: process.env.BASE_URL || 'https://epheia-files.pages.dev',
+    // Default to the local Vite dev server. Set BASE_URL to a production
+    // Pages URL (e.g. https://filesync.example.com) for production E2E runs.
+    baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

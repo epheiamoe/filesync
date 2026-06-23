@@ -54,10 +54,19 @@ export function setUnauthorizedHandler(fn: () => void): void {
 
 // ---- Base fetch ----
 
-// Dev: proxy to local wrangler. Production: direct Worker URL.
-const BASE_URL = import.meta.env.DEV
+// API base URL is controlled by the VITE_API_BASE_URL environment variable.
+// In development, Vite proxies requests to the local backend on /api.
+// In production builds, VITE_API_BASE_URL must be set; otherwise the build
+// throws so users never accidentally deploy against a stale hardcoded domain.
+const BASE_URL: string = import.meta.env.DEV
   ? '/api'
-  : 'https://filesync-api.epheia.moe/api';
+  : import.meta.env.VITE_API_BASE_URL ||
+    (() => {
+      throw new Error(
+        'Missing required environment variable VITE_API_BASE_URL. ' +
+          'Set it in your Cloudflare Pages production environment variables or local .env file.',
+      );
+    })();
 
 /**
  * Returns the API base URL — for use in direct URL construction

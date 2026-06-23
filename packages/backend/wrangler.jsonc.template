@@ -38,15 +38,20 @@
     }
   ],
   "routes": [
-    // { "pattern": "api.epheia-files.pages.dev/*", "zone_id": "..." }
+    // { "pattern": "api.your-domain.example.com/*", "zone_id": "..." }
     // Uncomment and set zone_id when deploying to production.
   ],
   "observability": {
     "enabled": true
   },
   "vars": {
+    // IMPORTANT: Replace all placeholder/example values below with your own
+    // domains and resource IDs before deploying. Copy this file to
+    // packages/backend/wrangler.jsonc (gitignored) and fill it in.
+
     // CORS: set to "*" for local dev, or a comma-separated origin list for production.
-    "CORS_ALLOWED_ORIGINS": "*",
+    // Use the exact production frontend origin, e.g. https://filesync.example.com
+    "CORS_ALLOWED_ORIGINS": "https://your-frontend-domain.example.com",
     // Login rate-limit tuning.
     "RATE_LIMIT_WINDOW_SECONDS": "300",
     "RATE_LIMIT_MAX_FAILURES": "5",

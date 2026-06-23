@@ -136,11 +136,35 @@ curl -i -H "Origin: https://evil.example.com" \
 
 ### Deploy Frontend to Pages
 
-```bash
-cd packages/frontend
-npm run build
-npx wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT_NAME>
-```
+1. Set the production API base URL in the Cloudflare Pages dashboard:
+   - Go to **Pages** → your project → **Settings** → **Environment variables**.
+   - Add `VITE_API_BASE_URL` under the **Production** environment, e.g.
+     ```
+     VITE_API_BASE_URL=https://filesync-api.example.com/api
+     ```
+   - `VITE_API_BASE_URL` is required for production builds. The build will fail
+     with a clear error if it is missing, ensuring no hardcoded domain is used.
+
+2. Build and deploy the frontend:
+
+   ```bash
+   cd packages/frontend
+   npm run build
+   npx wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT_NAME>
+   ```
+
+### Cross-Origin (CORS) Configuration
+
+The backend rejects credential-bearing requests from untrusted origins unless
+`CORS_ALLOWED_ORIGINS` is configured correctly. After copying
+`packages/backend/wrangler.jsonc.template` to `packages/backend/wrangler.jsonc`:
+
+- Set `CORS_ALLOWED_ORIGINS` to the exact production frontend URL, e.g.
+  `https://filesync.epheia.moe`. Do not include a trailing slash.
+- For local development, `"*"` may be used, but never commit `"*"` for production.
+- The template file uses `https://your-frontend-domain.example.com` as a placeholder
+  and must be replaced with your real domain before deploying.
+
 
 ## End-to-End Testing
 
