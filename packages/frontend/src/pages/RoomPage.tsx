@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef, type DragEvent, type ChangeEv
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
+import { useRoomNotifications } from '@/hooks/useRoomNotifications';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { getRoomKey, decryptText, hashKey, storeRoomKey, decodeShareString, encryptText, encryptFile, encodeShareString } from '@/lib/crypto';
@@ -85,6 +86,8 @@ export function RoomPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const [membersModalOpen, setMembersModalOpen] = useState(false);
   const memberTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const { requestPermission, permission } = useRoomNotifications(ws, session?.token || '');
 
   // ---- Room loading (unchanged core logic) ----
 
@@ -439,6 +442,12 @@ export function RoomPage() {
         created_at: res.created_at,
       };
       addMessage(newMsg);
+
+      // Request notification permission on the first successful send.
+      // Browser vendors require a user gesture for the permission prompt;
+      // sending a message is a reliable, explicit gesture.
+      requestPermission().catch(() => {});
+
       return true;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.error');
@@ -451,7 +460,7 @@ export function RoomPage() {
     } finally {
       setSending(false);
     }
-  }, [code, currentRoom, session, addMessage]);
+  }, [code, currentRoom, session, addMessage, requestPermission]);
 
   // ---- Shared File Upload Handler (used by input bar and drag-drop) ----
 
@@ -796,6 +805,34 @@ export function RoomPage() {
                     <circle cx="18" cy="19" r="3" />
                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                     <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                </Button>
+              );
+            })()}
+            {(() => {
+              if (permission === 'unsupported') return null;
+              const denied = permission === 'denied';
+              return (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => !denied && requestPermission()}
+                  disabled={denied}
+                  aria-label={denied ? t('notification.disabled') : t('notification.enable')}
+                  title={denied ? t('notification.disabled') : t('notification.enable')}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="w-5 h-5"
+                  >
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                   </svg>
                 </Button>
               );

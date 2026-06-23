@@ -126,6 +126,15 @@ const translations: Translations = {
   'chat.downloadLink': { 'zh-CN': '下载链接', 'en-US': 'Download Link' },
   'chat.previewLink': { 'zh-CN': '预览链接', 'en-US': 'Preview Link' },
 
+  // ---- Notifications ----
+  'notification.newMessage': { 'zh-CN': '新消息', 'en-US': 'New message' },
+  'notification.fromDevice': { 'zh-CN': '来自 {device}', 'en-US': 'From {device}' },
+  'notification.messageType.text': { 'zh-CN': '文字', 'en-US': 'Text' },
+  'notification.messageType.file_shared': { 'zh-CN': '文件', 'en-US': 'File' },
+  'notification.messageType.system': { 'zh-CN': '系统', 'en-US': 'System' },
+  'notification.enable': { 'zh-CN': '开启通知', 'en-US': 'Enable notifications' },
+  'notification.disabled': { 'zh-CN': '通知已被禁用', 'en-US': 'Notifications disabled' },
+
   // ---- Transfer ----
   'transfer.title': { 'zh-CN': '传输', 'en-US': 'Transfer' },
   'transfer.texts': { 'zh-CN': '文本', 'en-US': 'Texts' },
