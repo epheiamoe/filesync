@@ -313,7 +313,7 @@ export function LoginPage() {
                   value={tempCode}
                   onChange={(e) => setTempCode(e.target.value.toUpperCase())}
                   placeholder="A1B2C3"
-                  maxLength={6}
+                  maxLength={12}
                   autoComplete="off"
                   required
                   autoFocus={!!shareString}
