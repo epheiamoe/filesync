@@ -13,6 +13,7 @@ import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString, hasRoomKey, getOrCreateClientFingerprint } from '@/lib/crypto';
+import { buildLoginUrl } from '@/lib/url';
 import { parseDeviceLabel } from '@/lib/device';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -784,6 +785,12 @@ export function RoomListPage() {
         onClose={() => setQrOpen(false)}
         shareString={qrData.shareString}
         roomCode={qrData.roomCode}
+        isAdmin={isAdmin}
+        onGenerateCredential={async () => {
+          const result = await api.createTempCredential();
+          const loginUrl = buildLoginUrl(qrData.shareString, result.code);
+          return { code: result.code, expires_at: result.expires_at };
+        }}
       />
     </div>
   );
