@@ -196,69 +196,106 @@ export function RoomListPage() {
   // Scan with camera (uses jsQR for cross-browser compatibility)
   const handleCameraScan = async () => {
     setScanChoiceOpen(false);
-    setScanning(true);
     setScanError('');
+
+    // Check if mediaDevices API exists at all (requires secure context: HTTPS or localhost)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setScanError(t('rooms.scanNoCamera'));
+      addToast({ type: 'error', message: t('rooms.scanNoCamera') });
+      return;
+    }
+
+    // Try to get a camera stream — with fallback constraints
+    let stream: MediaStream | null = null;
+    const constraintsList: Array<MediaStreamConstraints> = [
+      // Try rear camera first (most common on phones scanning QR codes)
+      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } } },
+      // Fall back to any front-facing camera
+      { video: { facingMode: { ideal: 'user' }, width: { ideal: 640 }, height: { ideal: 480 } } },
+      // Last resort: any camera, any resolution
+      { video: true },
+    ];
+
+    for (const constraints of constraintsList) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break; // Got a stream, stop trying
+      } catch {
+        // Try next constraint
+      }
+    }
+
+    if (!stream) {
+      // All attempts failed — determine why
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasCamera = devices.some((d) => d.kind === 'videoinput');
+        if (!hasCamera) {
+          setScanError(t('rooms.scanNoCamera'));
+        } else {
+          setScanError(t('rooms.scanCameraDenied'));
+        }
+      } catch {
+        setScanError(t('rooms.scanCameraDenied'));
+      }
+      // Show error as toast so user sees it even if overlay closes
+      return;
+    }
+
+    // Camera obtained — proceed with scanning
+    setScanning(true);
     scanningRef.current = true;
+    streamRef.current = stream;
 
     const jsQRModule = await import('jsqr').catch(() => null);
     const jsQR = jsQRModule?.default;
     if (!jsQR) {
       setScanError(t('rooms.scanNotSupported'));
+      stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       setScanning(false);
       return;
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        setScanError(t('rooms.scanError'));
-        stopScanning();
-        return;
-      }
-
-      const scanFrame = () => {
-        if (!videoRef.current || !scanningRef.current) return;
-
-        const video = videoRef.current;
-        if (video.videoWidth > 0 && video.videoHeight > 0) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0);
-
-          try {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height);
-            if (code && processScanResult(code.data)) {
-              return; // Found and handled
-            }
-          } catch {
-            // Single frame decode error — continue scanning
-          }
-        }
-
-        if (scanningRef.current) {
-          requestAnimationFrame(scanFrame);
-        }
-      };
-
-      requestAnimationFrame(scanFrame);
-    } catch {
-      setScanError(t('rooms.scanCameraDenied'));
-      // Auto-dismiss after 3s so user can read the error
-      setTimeout(() => {
-        if (scanningRef.current) stopScanning();
-      }, 3000);
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
     }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setScanError(t('rooms.scanError'));
+      stopScanning();
+      return;
+    }
+
+    const scanFrame = () => {
+      if (!videoRef.current || !scanningRef.current) return;
+
+      const video = videoRef.current;
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+
+        try {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+          if (code && processScanResult(code.data)) {
+            return; // Found and handled
+          }
+        } catch {
+          // Single frame decode error — continue scanning
+        }
+      }
+
+      if (scanningRef.current) {
+        requestAnimationFrame(scanFrame);
+      }
+    };
+
+    requestAnimationFrame(scanFrame);
   };
 
   // Scan from uploaded image
