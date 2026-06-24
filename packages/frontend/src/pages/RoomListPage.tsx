@@ -46,6 +46,7 @@ export function RoomListPage() {
   const [qrData, setQrData] = useState({ shareString: '', roomCode: '' });
   const [deletingRooms, setDeletingRooms] = useState<Set<string>>(new Set());
   const [scanning, setScanning] = useState(false);
+  const [scanChoiceOpen, setScanChoiceOpen] = useState(false);
   const [scanError, setScanError] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -115,120 +116,200 @@ export function RoomListPage() {
 
   // ---- QR Scanner ----
 
-  const handleScanQR = async () => {
+  // Stop camera scanning (extracted to component level for reuse)
+  const stopScanning = useCallback(() => {
+    scanningRef.current = false;
+    setScanning(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  // Auto-join room for already-authenticated users
+  const handleAutoJoin = useCallback(async (roomCode: string, key: Uint8Array) => {
+    setJoining(true);
+    try {
+      const keyHash = await hashKey(key);
+      const deviceLabel = parseDeviceLabel();
+      await api.joinRoom(roomCode, keyHash, deviceLabel);
+      storeRoomKey(roomCode, key);
+      addToast({ type: 'success', message: t('rooms.joined') });
+      navigate(`/room/${roomCode}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
+      addToast({ type: 'error', message });
+    } finally {
+      setJoining(false);
+    }
+  }, [navigate, addToast]);
+
+  // Process QR scan result: extract share string, auto-join if authenticated
+  const processScanResult = useCallback((content: string): boolean => {
+    let rawShare: string | null = null;
+
+    // Try to find login#<shareString>[-<credential>] pattern
+    const loginMatch = content.match(/login#(.+)/);
+    if (loginMatch) {
+      rawShare = decodeURIComponent(loginMatch[1]);
+    }
+    // Direct share string format: "4821-XXXX-XXXX-..."
+    else if (/^\d{4}-[0-9A-HJKMNP-TV-Z]+(-[0-9A-HJKMNP-TV-Z]+)*$/i.test(content)) {
+      rawShare = content;
+    }
+
+    if (!rawShare) return false;
+
+    // Strip credential if present (last 6-char segment after dash)
+    const lastDash = rawShare.lastIndexOf('-');
+    let shareString = rawShare;
+    if (lastDash > 4) {
+      const potentialCred = rawShare.slice(lastDash + 1);
+      if (potentialCred.length === 6 && /^[A-Za-z0-9]{6}$/.test(potentialCred)) {
+        shareString = rawShare.slice(0, lastDash);
+      }
+    }
+
+    stopScanning();
+
+    // If already authenticated → auto-join the room directly
+    const { isAuthenticated } = useStore.getState();
+    if (isAuthenticated) {
+      const decoded = decodeShareString(shareString);
+      if (decoded) {
+        handleAutoJoin(decoded.roomCode, decoded.key);
+        return true;
+      }
+    }
+
+    // Not authenticated or invalid share → navigate to login
+    navigate(`/login#${encodeURIComponent(rawShare)}`);
+    return true;
+  }, [navigate, stopScanning, handleAutoJoin]);
+
+  // Show scan method choice dialog
+  const handleScanQR = () => {
+    setScanChoiceOpen(true);
+  };
+
+  // Scan with camera (uses jsQR for cross-browser compatibility)
+  const handleCameraScan = async () => {
+    setScanChoiceOpen(false);
     setScanning(true);
     setScanError('');
     scanningRef.current = true;
 
-    const stopScanning = () => {
-      scanningRef.current = false;
+    const jsQRModule = await import('jsqr').catch(() => null);
+    const jsQR = jsQRModule?.default;
+    if (!jsQR) {
+      setScanError(t('rooms.scanNotSupported'));
       setScanning(false);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-    };
-
-    // Helper: extract share string from scanned content
-    const processScanResult = (content: string) => {
-      // Try to find login#<shareString>[-<credential>] pattern
-      const loginMatch = content.match(/login#(.+)/);
-      if (loginMatch) {
-        const fragment = decodeURIComponent(loginMatch[1]);
-        stopScanning();
-        navigate(`/login#${encodeURIComponent(fragment)}`);
-        return true;
-      }
-      // Direct share string format: "4821-XXXX-XXXX-..."
-      if (/^\d{4}-[0-9A-HJKMNP-TV-Z]+(-[0-9A-HJKMNP-TV-Z]+)*$/i.test(content)) {
-        stopScanning();
-        navigate(`/login#${encodeURIComponent(content)}`);
-        return true;
-      }
-      return false;
-    };
-
-    // ---- Path A: BarcodeDetector API (Chrome/Edge) ----
-    const BarcodeDetectorCtor = (window as unknown as Record<string, unknown>).BarcodeDetector;
-    if (typeof BarcodeDetectorCtor === 'function') {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-
-        const detector = new (BarcodeDetectorCtor as new (opts: { formats: string[] }) => {
-          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
-        })({ formats: ['qr_code'] });
-
-        const scanFrame = async () => {
-          if (!videoRef.current || !scanningRef.current) return;
-          try {
-            const barcodes = await detector.detect(videoRef.current);
-            for (const barcode of barcodes) {
-              if (processScanResult(barcode.rawValue)) return;
-            }
-          } catch {
-            // Detection error on a single frame — continue scanning
-          }
-          if (scanningRef.current) {
-            requestAnimationFrame(scanFrame);
-          }
-        };
-        scanFrame();
-        return;
-      } catch {
-        // Camera access denied or BarcodeDetector failed → fall through to Path B
-        stopScanning();
-      }
+      return;
     }
 
-    // ---- Path B: File picker fallback ----
-    // BarcodeDetector not supported or camera denied — use file input
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setScanError(t('rooms.scanError'));
+        stopScanning();
+        return;
+      }
+
+      const scanFrame = () => {
+        if (!videoRef.current || !scanningRef.current) return;
+
+        const video = videoRef.current;
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+
+          try {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code && processScanResult(code.data)) {
+              return; // Found and handled
+            }
+          } catch {
+            // Single frame decode error — continue scanning
+          }
+        }
+
+        if (scanningRef.current) {
+          requestAnimationFrame(scanFrame);
+        }
+      };
+
+      requestAnimationFrame(scanFrame);
+    } catch {
+      setScanError(t('rooms.scanCameraDenied'));
+      // Auto-dismiss after 3s so user can read the error
+      setTimeout(() => {
+        if (scanningRef.current) stopScanning();
+      }, 3000);
+    }
+  };
+
+  // Scan from uploaded image
+  const handleImageScan = () => {
+    setScanChoiceOpen(false);
+
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
     fileInput.onchange = async () => {
       const file = fileInput.files?.[0];
       if (!file) {
-        setScanning(false);
         return;
       }
+
+      // Show scanning state while processing
+      setScanning(true);
+      setScanError('');
+      scanningRef.current = true;
+
       try {
-        // Use dynamic import of jsqr for fallback
         const jsQRModule = await import('jsqr').catch(() => null);
         const jsQR = jsQRModule?.default;
         if (!jsQR) {
-          setScanError(t('rooms.scanCameraDenied'));
+          setScanError(t('rooms.scanNotSupported'));
           setScanning(false);
           return;
         }
+
         const bitmap = await createImageBitmap(file);
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          setScanError(t('rooms.scanCameraDenied'));
+        const scanCanvas = document.createElement('canvas');
+        scanCanvas.width = bitmap.width;
+        scanCanvas.height = bitmap.height;
+        const scanCtx = scanCanvas.getContext('2d');
+        if (!scanCtx) {
+          setScanError(t('rooms.scanError'));
           setScanning(false);
           return;
         }
-        ctx.drawImage(bitmap, 0, 0);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        scanCtx.drawImage(bitmap, 0, 0);
+        const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
         if (code && processScanResult(code.data)) {
-          return;
+          return; // Found and handled
         }
-        setScanError(t('rooms.scanCameraDenied'));
+        setScanError(t('rooms.scanNoQR'));
       } catch {
-        setScanError(t('rooms.scanCameraDenied'));
+        setScanError(t('rooms.scanError'));
       }
-      setScanning(false);
+      // Keep overlay visible briefly so user can read error
+      setTimeout(() => setScanning(false), 1500);
     };
     fileInput.click();
   };
@@ -564,12 +645,36 @@ export function RoomListPage() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 z-[900] flex flex-col items-center justify-center p-4"
           >
-            <video
-              ref={videoRef}
-              className="max-w-full max-h-[70vh] rounded-lg"
-              playsInline
-              aria-label={t('rooms.scanQR')}
-            />
+            {streamRef.current ? (
+              <video
+                ref={videoRef}
+                className="max-w-full max-h-[70vh] rounded-lg"
+                playsInline
+                aria-label={t('rooms.scanQR')}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-4 text-white">
+                <svg
+                  className="w-12 h-12 animate-pulse"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 7V5a2 2 0 012-2h2" />
+                  <path d="M17 3h2a2 2 0 012 2v2" />
+                  <path d="M21 17v2a2 2 0 01-2 2h-2" />
+                  <path d="M7 21H5a2 2 0 01-2-2v-2" />
+                  <rect x="7" y="7" width="6" height="6" rx="1" />
+                  <rect x="7" y="15" width="6" height="2" rx="0.5" />
+                  <rect x="15" y="7" width="2" height="6" rx="0.5" />
+                </svg>
+                <p className="text-sm">{t('rooms.scanningQR')}</p>
+              </div>
+            )}
             <Button
               variant="ghost"
               onClick={() => {
@@ -587,6 +692,88 @@ export function RoomListPage() {
             {scanError && (
               <p className="text-error mt-2 text-sm" role="alert">{scanError}</p>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* QR Scanner — Scan Method Choice */}
+      <AnimatePresence>
+        {scanChoiceOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-[900] flex items-center justify-center p-4"
+            onClick={() => setScanChoiceOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-canvas rounded-xl p-6 max-w-xs w-full shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('rooms.scanChoiceTitle')}
+            >
+              <h2 className="text-title-md font-display text-ink text-center mb-6">
+                {t('rooms.scanChoiceTitle')}
+              </h2>
+              <div className="flex flex-col gap-3">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  onClick={handleCameraScan}
+                >
+                  <svg
+                    className="w-5 h-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <circle cx="12" cy="13" r="4" />
+                  </svg>
+                  {t('rooms.scanWithCamera')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  onClick={handleImageScan}
+                >
+                  <svg
+                    className="w-5 h-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  {t('rooms.scanFromImage')}
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                onClick={() => setScanChoiceOpen(false)}
+                className="mt-4"
+              >
+                {t('common.cancel')}
+              </Button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

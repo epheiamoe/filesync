@@ -94,6 +94,14 @@ const translations: Translations = {
   'rooms.fullQRUrl': { 'zh-CN': '完整登录 URL', 'en-US': 'Full login URL' },
   'rooms.scanQR': { 'zh-CN': '扫描 QR', 'en-US': 'Scan QR' },
   'rooms.scanCameraDenied': { 'zh-CN': '无法访问摄像头。请授予摄像头权限或使用文件选择器。', 'en-US': 'Cannot access camera. Please grant permission or use file picker.' },
+  'rooms.scanWithCamera': { 'zh-CN': '摄像头扫描', 'en-US': 'Scan with Camera' },
+  'rooms.scanFromImage': { 'zh-CN': '上传图片识别', 'en-US': 'Upload Image' },
+  'rooms.scanNoQR': { 'zh-CN': '未在图片中找到 QR 码，请尝试其他图片。', 'en-US': 'No QR code found in the image. Please try another image.' },
+  'rooms.scanNotSupported': { 'zh-CN': '您的浏览器不支持 QR 码扫描，请使用分享字符串加入。', 'en-US': 'QR code scanning is not supported in your browser. Please use the share string to join.' },
+  'rooms.scanError': { 'zh-CN': '扫描出错，请重试。', 'en-US': 'Scan error. Please try again.' },
+  'rooms.scanChoiceTitle': { 'zh-CN': '选择扫描方式', 'en-US': 'Choose Scan Method' },
+  'rooms.scanningQR': { 'zh-CN': '正在识别 QR 码...', 'en-US': 'Scanning QR code...' },
+  'rooms.joined': { 'zh-CN': '已加入房间', 'en-US': 'Joined room' },
 
   // ---- Chat ----
   'chat.title': { 'zh-CN': '聊天', 'en-US': 'Chat' },
