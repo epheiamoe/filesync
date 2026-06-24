@@ -196,56 +196,64 @@ export function RoomListPage() {
   // Scan with camera (uses jsQR for cross-browser compatibility)
   const handleCameraScan = async () => {
     setScanChoiceOpen(false);
-    setScanError('');
 
-    // Check if mediaDevices API exists at all (requires secure context: HTTPS or localhost)
+    // Show scanning overlay immediately so user sees something happening
+    setScanning(true);
+    setScanError('');
+    scanningRef.current = true;
+
+    // Check if mediaDevices API exists (requires secure context: HTTPS/localhost)
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setScanError(t('rooms.scanNoCamera'));
-      addToast({ type: 'error', message: t('rooms.scanNoCamera') });
       return;
     }
 
-    // Try to get a camera stream — with fallback constraints
+    // Check stored permission state first (if Permissions API is available)
+    try {
+      const permStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      if (permStatus.state === 'denied') {
+        setScanError(t('rooms.scanCameraBlocked'));
+        return;
+      }
+    } catch {
+      // Permissions API not supported — proceed directly to getUserMedia
+    }
+
+    // Try to get a camera stream with progressive constraint fallback
     let stream: MediaStream | null = null;
     const constraintsList: Array<MediaStreamConstraints> = [
-      // Try rear camera first (most common on phones scanning QR codes)
-      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } } },
-      // Fall back to any front-facing camera
-      { video: { facingMode: { ideal: 'user' }, width: { ideal: 640 }, height: { ideal: 480 } } },
-      // Last resort: any camera, any resolution
+      { video: { facingMode: { ideal: 'environment' } } },
+      { video: { facingMode: { ideal: 'user' } } },
       { video: true },
     ];
 
     for (const constraints of constraintsList) {
       try {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
-        break; // Got a stream, stop trying
+        break;
       } catch {
         // Try next constraint
       }
     }
 
     if (!stream) {
-      // All attempts failed — determine why
+      // Determine why camera access failed
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const hasCamera = devices.some((d) => d.kind === 'videoinput');
-        if (!hasCamera) {
-          setScanError(t('rooms.scanNoCamera'));
-        } else {
-          setScanError(t('rooms.scanCameraDenied'));
-        }
+        const hasCamera = (await navigator.mediaDevices.enumerateDevices())
+          .some((d) => d.kind === 'videoinput');
+        setScanError(hasCamera ? t('rooms.scanCameraDenied') : t('rooms.scanNoCamera'));
       } catch {
         setScanError(t('rooms.scanCameraDenied'));
       }
-      // Show error as toast so user sees it even if overlay closes
-      return;
+      return; // Overlay stays visible with error; user can Cancel
     }
 
     // Camera obtained — proceed with scanning
-    setScanning(true);
-    scanningRef.current = true;
     streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+    }
 
     const jsQRModule = await import('jsqr').catch(() => null);
     const jsQR = jsQRModule?.default;
@@ -253,13 +261,7 @@ export function RoomListPage() {
       setScanError(t('rooms.scanNotSupported'));
       stream.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      setScanning(false);
       return;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
     }
 
     const canvas = document.createElement('canvas');

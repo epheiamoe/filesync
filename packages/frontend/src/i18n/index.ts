@@ -95,6 +95,7 @@ const translations: Translations = {
   'rooms.scanQR': { 'zh-CN': '扫描 QR', 'en-US': 'Scan QR' },
   'rooms.scanCameraDenied': { 'zh-CN': '无法访问摄像头。请授予摄像头权限或使用文件选择器。', 'en-US': 'Cannot access camera. Please grant permission or use file picker.' },
   'rooms.scanNoCamera': { 'zh-CN': '未检测到摄像头设备。请使用"上传图片识别"功能。', 'en-US': 'No camera detected. Please use "Upload Image" instead.' },
+  'rooms.scanCameraBlocked': { 'zh-CN': '摄像头权限已被浏览器屏蔽。请在浏览器设置中允许此站点访问摄像头，或使用"上传图片识别"。', 'en-US': 'Camera access is blocked in browser settings. Please allow camera for this site, or use "Upload Image".' },
   'rooms.scanWithCamera': { 'zh-CN': '摄像头扫描', 'en-US': 'Scan with Camera' },
   'rooms.scanFromImage': { 'zh-CN': '上传图片识别', 'en-US': 'Upload Image' },
   'rooms.scanNoQR': { 'zh-CN': '未在图片中找到 QR 码，请尝试其他图片。', 'en-US': 'No QR code found in the image. Please try another image.' },
