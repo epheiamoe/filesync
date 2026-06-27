@@ -10,16 +10,23 @@
  * @module ws
  */
 
-import { api } from './api';
+import { api, getApiBaseUrl } from './api';
 import type { WsMessage, OnlineMember } from '@shared/types';
 
 export type WsEventHandler = (event: WsMessage) => void;
 export type MemberUpdateHandler = (members: OnlineMember[]) => void;
 export type ConnectionHandler = (connected: boolean) => void;
 
-const WS_BASE = import.meta.env.DEV
-  ? 'ws://localhost:8787'
-  : 'wss://filesync-api.epheia.workers.dev';
+function getWsBaseUrl(): string {
+  if (import.meta.env.DEV) return 'ws://localhost:8787';
+  // Convert API base URL (https://domain/api) to WebSocket URL (wss://domain)
+  const apiUrl = getApiBaseUrl(); // e.g., https://filesync-api.epheia.moe/api
+  return apiUrl
+    .replace(/^https:\/\//, 'wss://')
+    .replace(/\/api\/?$/, '');
+}
+
+const WS_BASE = getWsBaseUrl();
 
 export class RoomSocket {
   private ws: WebSocket | null = null;
