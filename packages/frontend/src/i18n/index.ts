@@ -103,6 +103,9 @@ const translations: Translations = {
   'rooms.scanError': { 'zh-CN': '扫描出错，请重试。', 'en-US': 'Scan error. Please try again.' },
   'rooms.scanChoiceTitle': { 'zh-CN': '选择扫描方式', 'en-US': 'Choose Scan Method' },
   'rooms.scanningQR': { 'zh-CN': '正在识别 QR 码...', 'en-US': 'Scanning QR code...' },
+  'rooms.scanProcessingImage': { 'zh-CN': '正在处理图片...', 'en-US': 'Processing image...' },
+  'rooms.scanSwitchToImage': { 'zh-CN': '改用图片上传', 'en-US': 'Use Image Upload' },
+  'rooms.scanQRFound': { 'zh-CN': '已识别二维码，正在处理...', 'en-US': 'QR code found, processing...' },
   'rooms.joined': { 'zh-CN': '已加入房间', 'en-US': 'Joined room' },
 
   // ---- Chat ----

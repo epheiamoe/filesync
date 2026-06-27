@@ -49,6 +49,7 @@ export function RoomListPage() {
   const [scanning, setScanning] = useState(false);
   const [scanChoiceOpen, setScanChoiceOpen] = useState(false);
   const [scanError, setScanError] = useState('');
+  const [scanMode, setScanMode] = useState<'camera' | 'image' | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
@@ -121,6 +122,8 @@ export function RoomListPage() {
   const stopScanning = useCallback(() => {
     scanningRef.current = false;
     setScanning(false);
+    setScanMode(null);
+    setScanError('');
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -196,8 +199,7 @@ export function RoomListPage() {
   // Scan with camera (uses jsQR for cross-browser compatibility)
   const handleCameraScan = async () => {
     setScanChoiceOpen(false);
-
-    // Show scanning overlay immediately so user sees something happening
+    setScanMode('camera');
     setScanning(true);
     setScanError('');
     scanningRef.current = true;
@@ -245,7 +247,7 @@ export function RoomListPage() {
       } catch {
         setScanError(t('rooms.scanCameraDenied'));
       }
-      return; // Overlay stays visible with error; user can Cancel
+      return; // Overlay stays visible with error; user can Cancel or switch to image
     }
 
     // Camera obtained — proceed with scanning
@@ -300,6 +302,39 @@ export function RoomListPage() {
     requestAnimationFrame(scanFrame);
   };
 
+  // Helper: get ImageData from a File, with fallback for older browsers
+  const getImageDataFromFile = async (file: File): Promise<ImageData> => {
+    if (typeof createImageBitmap === 'function') {
+      const bitmap = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(bitmap, 0, 0);
+      return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }
+
+    // Fallback for browsers without createImageBitmap
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+          resolve(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        };
+        img.onerror = reject;
+        img.src = reader.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Scan from uploaded image
   const handleImageScan = () => {
     setScanChoiceOpen(false);
@@ -314,42 +349,41 @@ export function RoomListPage() {
       }
 
       // Show scanning state while processing
+      setScanMode('image');
       setScanning(true);
       setScanError('');
       scanningRef.current = true;
 
       try {
+        // Load jsQR
         const jsQRModule = await import('jsqr').catch(() => null);
         const jsQR = jsQRModule?.default;
         if (!jsQR) {
           setScanError(t('rooms.scanNotSupported'));
-          setScanning(false);
           return;
         }
 
-        const bitmap = await createImageBitmap(file);
-        const scanCanvas = document.createElement('canvas');
-        scanCanvas.width = bitmap.width;
-        scanCanvas.height = bitmap.height;
-        const scanCtx = scanCanvas.getContext('2d');
-        if (!scanCtx) {
-          setScanError(t('rooms.scanError'));
-          setScanning(false);
-          return;
-        }
-        scanCtx.drawImage(bitmap, 0, 0);
-        const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+        // Convert file to ImageData
+        const imageData = await getImageDataFromFile(file);
+
+        // Decode QR
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
-        if (code && processScanResult(code.data)) {
-          return; // Found and handled
+        if (code) {
+          // QR found — show success feedback before processing
+          addToast({ type: 'success', message: t('rooms.scanQRFound') });
+          if (processScanResult(code.data)) {
+            return; // Found and handled
+          }
         }
+
+        // No QR found
         setScanError(t('rooms.scanNoQR'));
-      } catch {
+      } catch (err) {
+        console.error('[QR Scan] Image processing error:', err);
         setScanError(t('rooms.scanError'));
       }
-      // Keep overlay visible briefly so user can read error
-      setTimeout(() => setScanning(false), 1500);
+      // Overlay stays open with error — user must click Cancel to dismiss
     };
     fileInput.click();
   };
@@ -685,53 +719,118 @@ export function RoomListPage() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 z-[900] flex flex-col items-center justify-center p-4"
           >
+            {/* Camera stream view */}
             {streamRef.current ? (
               <video
                 ref={videoRef}
-                className="max-w-full max-h-[70vh] rounded-lg"
+                className="max-w-full max-h-[60vh] rounded-lg"
                 playsInline
                 aria-label={t('rooms.scanQR')}
               />
             ) : (
+              /* Processing state (camera loading or image processing) */
               <div className="flex flex-col items-center gap-4 text-white">
-                <svg
-                  className="w-12 h-12 animate-pulse"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M3 7V5a2 2 0 012-2h2" />
-                  <path d="M17 3h2a2 2 0 012 2v2" />
-                  <path d="M21 17v2a2 2 0 01-2 2h-2" />
-                  <path d="M7 21H5a2 2 0 01-2-2v-2" />
-                  <rect x="7" y="7" width="6" height="6" rx="1" />
-                  <rect x="7" y="15" width="6" height="2" rx="0.5" />
-                  <rect x="15" y="7" width="2" height="6" rx="0.5" />
-                </svg>
-                <p className="text-sm">{t('rooms.scanningQR')}</p>
+                {scanMode === 'image' ? (
+                  /* Image processing icon */
+                  <svg
+                    className="w-12 h-12 animate-pulse"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                ) : (
+                  /* Camera / QR scanning icon */
+                  <svg
+                    className="w-12 h-12 animate-pulse"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 7V5a2 2 0 012-2h2" />
+                    <path d="M17 3h2a2 2 0 012 2v2" />
+                    <path d="M21 17v2a2 2 0 01-2 2h-2" />
+                    <path d="M7 21H5a2 2 0 01-2-2v-2" />
+                    <rect x="7" y="7" width="6" height="6" rx="1" />
+                    <rect x="7" y="15" width="6" height="2" rx="0.5" />
+                    <rect x="15" y="7" width="2" height="6" rx="0.5" />
+                  </svg>
+                )}
+                <p className="text-sm">
+                  {scanError
+                    ? ''
+                    : scanMode === 'image'
+                      ? t('rooms.scanProcessingImage')
+                      : t('rooms.scanningQR')}
+                </p>
               </div>
             )}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                scanningRef.current = false;
-                setScanning(false);
-                if (streamRef.current) {
-                  streamRef.current.getTracks().forEach((t) => t.stop());
-                  streamRef.current = null;
-                }
-              }}
-              className="mt-4 text-white"
-            >
-              {t('common.cancel')}
-            </Button>
+
+            {/* Error message — prominent, stays visible until user dismisses */}
             {scanError && (
-              <p className="text-error mt-2 text-sm" role="alert">{scanError}</p>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 max-w-sm w-full"
+              >
+                <div className="bg-red-500/20 border border-red-500/40 rounded-lg p-4 text-center">
+                  <p className="text-red-300 text-sm font-medium" role="alert">
+                    {scanError}
+                  </p>
+                </div>
+              </motion.div>
             )}
+
+            {/* Action buttons */}
+            <div className="mt-4 flex flex-col gap-2 items-center">
+              {/* Camera failed — offer switch to image upload */}
+              {scanError && scanMode === 'camera' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    stopScanning();
+                    // Small delay to let overlay close before opening file picker
+                    setTimeout(() => handleImageScan(), 300);
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4 mr-1"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  {t('rooms.scanSwitchToImage')}
+                </Button>
+              )}
+
+              <Button
+                variant="ghost"
+                onClick={stopScanning}
+                className="text-white"
+              >
+                {t('common.cancel')}
+              </Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
