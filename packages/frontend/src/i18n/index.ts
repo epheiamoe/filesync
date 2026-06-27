@@ -106,6 +106,7 @@ const translations: Translations = {
   'rooms.scanProcessingImage': { 'zh-CN': '正在处理图片...', 'en-US': 'Processing image...' },
   'rooms.scanSwitchToImage': { 'zh-CN': '改用图片上传', 'en-US': 'Use Image Upload' },
   'rooms.scanQRFound': { 'zh-CN': '已识别二维码，正在处理...', 'en-US': 'QR code found, processing...' },
+  'rooms.scanJoining': { 'zh-CN': '正在加入房间...', 'en-US': 'Joining room...' },
   'rooms.joined': { 'zh-CN': '已加入房间', 'en-US': 'Joined room' },
 
   // ---- Chat ----

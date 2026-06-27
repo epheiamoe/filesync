@@ -50,9 +50,11 @@ export function RoomListPage() {
   const [scanChoiceOpen, setScanChoiceOpen] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanMode, setScanMode] = useState<'camera' | 'image' | null>(null);
+  const [scanProcessing, setScanProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
+  const scanProcessingRef = useRef(false);
   const addToast = useStore((s) => s.addToast);
 
   const loadRooms = useCallback(async () => {
@@ -121,9 +123,11 @@ export function RoomListPage() {
   // Stop camera scanning (extracted to component level for reuse)
   const stopScanning = useCallback(() => {
     scanningRef.current = false;
+    scanProcessingRef.current = false;
     setScanning(false);
     setScanMode(null);
     setScanError('');
+    setScanProcessing(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -142,14 +146,16 @@ export function RoomListPage() {
       navigate(`/room/${roomCode}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
+      console.error('[QR Scan] Auto-join failed:', err);
       addToast({ type: 'error', message });
+      throw err; // Re-throw so caller can handle overlay state
     } finally {
       setJoining(false);
     }
   }, [navigate, addToast]);
 
   // Process QR scan result: extract share string, auto-join if authenticated
-  const processScanResult = useCallback((content: string): boolean => {
+  const processScanResult = useCallback(async (content: string): Promise<boolean> => {
     let rawShare: string | null = null;
 
     // Try to find login#<shareString>[-<credential>] pattern
@@ -174,19 +180,30 @@ export function RoomListPage() {
       }
     }
 
-    stopScanning();
-
     // If already authenticated → auto-join the room directly
     const { isAuthenticated } = useStore.getState();
     if (isAuthenticated) {
       const decoded = decodeShareString(shareString);
       if (decoded) {
-        handleAutoJoin(decoded.roomCode, decoded.key);
-        return true;
+        setScanProcessing(true);
+        scanProcessingRef.current = true;
+        try {
+          await handleAutoJoin(decoded.roomCode, decoded.key);
+          // Success: handleAutoJoin navigates away, overlay will unmount
+          return true;
+        } catch (err) {
+          // Auto-join failed — show error in overlay and keep it open
+          const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
+          setScanError(message);
+          setScanProcessing(false);
+          scanProcessingRef.current = false;
+          return true;
+        }
       }
     }
 
     // Not authenticated or invalid share → navigate to login
+    stopScanning();
     navigate(`/login#${encodeURIComponent(rawShare)}`);
     return true;
   }, [navigate, stopScanning, handleAutoJoin]);
@@ -202,23 +219,14 @@ export function RoomListPage() {
     setScanMode('camera');
     setScanning(true);
     setScanError('');
+    setScanProcessing(false);
+    scanProcessingRef.current = false;
     scanningRef.current = true;
 
     // Check if mediaDevices API exists (requires secure context: HTTPS/localhost)
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setScanError(t('rooms.scanNoCamera'));
       return;
-    }
-
-    // Check stored permission state first (if Permissions API is available)
-    try {
-      const permStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
-      if (permStatus.state === 'denied') {
-        setScanError(t('rooms.scanCameraBlocked'));
-        return;
-      }
-    } catch {
-      // Permissions API not supported — proceed directly to getUserMedia
     }
 
     // Try to get a camera stream with progressive constraint fallback
@@ -274,8 +282,8 @@ export function RoomListPage() {
       return;
     }
 
-    const scanFrame = () => {
-      if (!videoRef.current || !scanningRef.current) return;
+    const scanFrame = async () => {
+      if (!videoRef.current || !scanningRef.current || scanProcessing) return;
 
       const video = videoRef.current;
       if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -286,15 +294,16 @@ export function RoomListPage() {
         try {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const code = jsQR(imageData.data, imageData.width, imageData.height);
-          if (code && processScanResult(code.data)) {
-            return; // Found and handled
+          if (code) {
+            const handled = await processScanResult(code.data);
+            if (handled) return; // Found and handled (or processing)
           }
         } catch {
           // Single frame decode error — continue scanning
         }
       }
 
-      if (scanningRef.current) {
+      if (scanningRef.current && !scanProcessingRef.current) {
         requestAnimationFrame(scanFrame);
       }
     };
@@ -352,6 +361,8 @@ export function RoomListPage() {
       setScanMode('image');
       setScanning(true);
       setScanError('');
+      setScanProcessing(false);
+      scanProcessingRef.current = false;
       scanningRef.current = true;
 
       try {
@@ -370,10 +381,10 @@ export function RoomListPage() {
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
         if (code) {
-          // QR found — show success feedback before processing
-          addToast({ type: 'success', message: t('rooms.scanQRFound') });
-          if (processScanResult(code.data)) {
-            return; // Found and handled
+          // QR found — process result (this will show "Joining..." state in overlay)
+          const handled = await processScanResult(code.data);
+          if (handled) {
+            return; // Processing or done
           }
         }
 
@@ -787,6 +798,24 @@ export function RoomListPage() {
                 <div className="bg-red-500/20 border border-red-500/40 rounded-lg p-4 text-center">
                   <p className="text-red-300 text-sm font-medium" role="alert">
                     {scanError}
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Processing state — QR found, joining room */}
+            {scanProcessing && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mt-4 max-w-sm w-full flex flex-col items-center gap-3"
+              >
+                <div className="bg-blue-500/20 border border-blue-500/40 rounded-lg p-6 text-center w-full">
+                  <div className="flex justify-center mb-3">
+                    <Spinner size="lg" />
+                  </div>
+                  <p className="text-blue-300 text-sm font-medium" role="status" aria-live="polite">
+                    {t('rooms.scanJoining')}
                   </p>
                 </div>
               </motion.div>
