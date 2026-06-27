@@ -215,6 +215,18 @@ export function RoomListPage() {
 
   // Scan with camera (uses jsQR for cross-browser compatibility)
   const handleCameraScan = async () => {
+    // CRITICAL: On Samsung/Edge Android browsers, getUserMedia MUST be called
+    // synchronously within the user gesture handler. Any setState or async
+    // operation before it causes the browser to skip the permission prompt
+    // and immediately return 'Permission Denied'.
+    //
+    // Step 1: Start getUserMedia IMMEDIATELY (synchronous Promise creation)
+    let streamPromise: Promise<MediaStream> | null = null;
+    if (navigator.mediaDevices?.getUserMedia) {
+      streamPromise = navigator.mediaDevices.getUserMedia({ video: true });
+    }
+
+    // Step 2: Now safe to do React state updates
     setScanChoiceOpen(false);
     setScanMode('camera');
     setScanning(true);
@@ -223,31 +235,18 @@ export function RoomListPage() {
     scanProcessingRef.current = false;
     scanningRef.current = true;
 
-    // Check if mediaDevices API exists (requires secure context: HTTPS/localhost)
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // Step 3: Check if mediaDevices API exists
+    if (!streamPromise) {
       setScanError(t('rooms.scanNoCamera'));
       return;
     }
 
-    // Try to get a camera stream with progressive constraint fallback
+    // Step 4: Await the stream (permission prompt was already triggered)
     let stream: MediaStream | null = null;
-    const constraintsList: Array<MediaStreamConstraints> = [
-      { video: { facingMode: { ideal: 'environment' } } },
-      { video: { facingMode: { ideal: 'user' } } },
-      { video: true },
-    ];
-
-    for (const constraints of constraintsList) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        break;
-      } catch {
-        // Try next constraint
-      }
-    }
-
-    if (!stream) {
-      // Determine why camera access failed
+    try {
+      stream = await streamPromise;
+    } catch {
+      // Permission denied or no camera — try to determine which
       try {
         const hasCamera = (await navigator.mediaDevices.enumerateDevices())
           .some((d) => d.kind === 'videoinput');
@@ -255,7 +254,7 @@ export function RoomListPage() {
       } catch {
         setScanError(t('rooms.scanCameraDenied'));
       }
-      return; // Overlay stays visible with error; user can Cancel or switch to image
+      return;
     }
 
     // Camera obtained — proceed with scanning
@@ -283,7 +282,7 @@ export function RoomListPage() {
     }
 
     const scanFrame = async () => {
-      if (!videoRef.current || !scanningRef.current || scanProcessing) return;
+      if (!videoRef.current || !scanningRef.current || scanProcessingRef.current) return;
 
       const video = videoRef.current;
       if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -366,16 +365,26 @@ export function RoomListPage() {
       scanningRef.current = true;
 
       try {
-        // Load jsQR
-        const jsQRModule = await import('jsqr').catch(() => null);
-        const jsQR = jsQRModule?.default;
+        // Load jsQR with a safety timeout
+        const jsQRModule = await Promise.race([
+          import('jsqr'),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('jsQR load timeout')), 10000)
+          ),
+        ]).catch(() => null);
+        const jsQR = (jsQRModule as { default?: typeof import('jsqr').default } | null)?.default;
         if (!jsQR) {
           setScanError(t('rooms.scanNotSupported'));
           return;
         }
 
-        // Convert file to ImageData
-        const imageData = await getImageDataFromFile(file);
+        // Convert file to ImageData with a safety timeout
+        const imageData = await Promise.race([
+          getImageDataFromFile(file),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('image decode timeout')), 10000)
+          ),
+        ]);
 
         // Decode QR
         const code = jsQR(imageData.data, imageData.width, imageData.height);
@@ -392,7 +401,12 @@ export function RoomListPage() {
         setScanError(t('rooms.scanNoQR'));
       } catch (err) {
         console.error('[QR Scan] Image processing error:', err);
-        setScanError(t('rooms.scanError'));
+        const message = err instanceof Error ? err.message : '';
+        if (message.includes('timeout') || message.includes('aborted')) {
+          setScanError(t('rooms.scanError') + ' (请求超时，请检查网络)');
+        } else {
+          setScanError(t('rooms.scanError'));
+        }
       }
       // Overlay stays open with error — user must click Cancel to dismiss
     };

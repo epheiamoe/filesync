@@ -107,12 +107,27 @@ async function request<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    credentials: 'include', // Cookie-based auth: browser sends epheia_session cookie automatically
-    body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
-  });
+  // 30s timeout to prevent infinite hangs on network issues
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers,
+      credentials: 'include',
+      body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+  } catch (fetchErr: unknown) {
+    clearTimeout(timeoutId);
+    if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+      throw new ApiError(0, 'TIMEOUT', '请求超时，请检查网络连接');
+    }
+    throw new ApiError(0, 'NETWORK_ERROR', fetchErr instanceof Error ? fetchErr.message : '网络错误');
+  }
 
   if (res.status === 401) {
     onUnauthorized();
