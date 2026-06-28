@@ -23,6 +23,21 @@ import { QRShare } from '@/components/shared/QRShare';
 import { Spinner } from '@/components/ui/Spinner';
 import type { AdminRoomRow, RoomInfo } from '@shared/types';
 
+// Pre-load jsQR module to avoid network delay during scan
+let jsQRModule: typeof import('jsqr') | null = null;
+async function preloadJsQR(): Promise<typeof import('jsqr') | null> {
+  if (jsQRModule) return jsQRModule;
+  try {
+    jsQRModule = await import('jsqr');
+    return jsQRModule;
+  } catch (e) {
+    console.error('[QR] Failed to load jsQR:', e);
+    return null;
+  }
+}
+// Start preloading immediately
+preloadJsQR();
+
 export function RoomListPage() {
   const navigate = useNavigate();
   const { session, logout } = useStore();
@@ -214,16 +229,22 @@ export function RoomListPage() {
   };
 
   // Scan with camera (uses jsQR for cross-browser compatibility)
-  const handleCameraScan = async () => {
-    // CRITICAL: On Samsung/Edge Android browsers, getUserMedia MUST be called
-    // synchronously within the user gesture handler. Any setState or async
-    // operation before it causes the browser to skip the permission prompt
-    // and immediately return 'Permission Denied'.
-    //
+  // CRITICAL: This handler MUST be synchronous. Samsung/Edge Android browsers
+  // require getUserMedia() to be called synchronously within the click event.
+  // Any async/await in this handler causes the browser to skip the permission
+  // prompt and immediately return 'Permission Denied'.
+  const handleCameraScan = () => {
+    console.log('[QR Camera] Step 1: Button clicked, starting synchronous getUserMedia');
+    
     // Step 1: Start getUserMedia IMMEDIATELY (synchronous Promise creation)
     let streamPromise: Promise<MediaStream> | null = null;
     if (navigator.mediaDevices?.getUserMedia) {
-      streamPromise = navigator.mediaDevices.getUserMedia({ video: true });
+      try {
+        streamPromise = navigator.mediaDevices.getUserMedia({ video: true });
+        console.log('[QR Camera] Step 2: getUserMedia Promise created synchronously');
+      } catch (e) {
+        console.error('[QR Camera] Step 2: getUserMedia synchronous throw:', e);
+      }
     }
 
     // Step 2: Now safe to do React state updates
@@ -237,77 +258,105 @@ export function RoomListPage() {
 
     // Step 3: Check if mediaDevices API exists
     if (!streamPromise) {
+      console.error('[QR Camera] Step 3: getUserMedia not available');
       setScanError(t('rooms.scanNoCamera'));
       return;
     }
 
-    // Step 4: Await the stream (permission prompt was already triggered)
-    let stream: MediaStream | null = null;
-    try {
-      stream = await streamPromise;
-    } catch {
-      // Permission denied or no camera — try to determine which
-      try {
-        const hasCamera = (await navigator.mediaDevices.enumerateDevices())
-          .some((d) => d.kind === 'videoinput');
-        setScanError(hasCamera ? t('rooms.scanCameraDenied') : t('rooms.scanNoCamera'));
-      } catch {
-        setScanError(t('rooms.scanCameraDenied'));
-      }
-      return;
-    }
-
-    // Camera obtained — proceed with scanning
-    streamRef.current = stream;
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-    }
-
-    const jsQRModule = await import('jsqr').catch(() => null);
-    const jsQR = jsQRModule?.default;
-    if (!jsQR) {
-      setScanError(t('rooms.scanNotSupported'));
-      stream.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setScanError(t('rooms.scanError'));
-      stopScanning();
-      return;
-    }
-
-    const scanFrame = async () => {
-      if (!videoRef.current || !scanningRef.current || scanProcessingRef.current) return;
-
-      const video = videoRef.current;
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0);
-
-        try {
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height);
-          if (code) {
-            const handled = await processScanResult(code.data);
-            if (handled) return; // Found and handled (or processing)
-          }
-        } catch {
-          // Single frame decode error — continue scanning
+    // Step 4: Handle the stream asynchronously using .then() chain
+    // (NOT async/await, to keep the original event handler synchronous)
+    streamPromise
+      .then((stream) => {
+        console.log('[QR Camera] Step 4: Stream obtained successfully');
+        streamRef.current = stream;
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          return videoRef.current.play();
         }
-      }
+        return Promise.resolve();
+      })
+      .then(() => {
+        console.log('[QR Camera] Step 5: Video playing, loading jsQR');
+        return preloadJsQR();
+      })
+      .then((jsQRMod) => {
+        if (!jsQRMod) {
+          console.error('[QR Camera] Step 6: jsQR load failed');
+          setScanError(t('rooms.scanNotSupported'));
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+          }
+          return;
+        }
+        
+        const jsQR = jsQRMod.default;
+        console.log('[QR Camera] Step 6: jsQR loaded, starting scan loop');
+        
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          console.error('[QR Camera] Step 6: Canvas context failed');
+          setScanError(t('rooms.scanError'));
+          stopScanning();
+          return;
+        }
 
-      if (scanningRef.current && !scanProcessingRef.current) {
+        const scanFrame = () => {
+          if (!videoRef.current || !scanningRef.current || scanProcessingRef.current) return;
+
+          const video = videoRef.current;
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+
+            try {
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(imageData.data, imageData.width, imageData.height);
+              if (code) {
+                console.log('[QR Camera] Step 7: QR code found:', code.data.substring(0, 20) + '...');
+                processScanResult(code.data).then((handled) => {
+                  if (handled) {
+                    console.log('[QR Camera] Step 8: QR processed successfully');
+                    return;
+                  }
+                  console.log('[QR Camera] Step 8: QR not recognized, continuing scan');
+                }).catch((err) => {
+                  console.error('[QR Camera] Step 8: processScanResult error:', err);
+                });
+                return;
+              }
+            } catch {
+              // Single frame decode error — continue scanning
+            }
+          }
+
+          if (scanningRef.current && !scanProcessingRef.current) {
+            requestAnimationFrame(scanFrame);
+          }
+        };
+
         requestAnimationFrame(scanFrame);
-      }
-    };
-
-    requestAnimationFrame(scanFrame);
+      })
+      .catch((err) => {
+        console.error('[QR Camera] Stream error:', err.name, err.message);
+        // Permission denied or no camera — try to determine which
+        if (navigator.mediaDevices?.enumerateDevices) {
+          navigator.mediaDevices.enumerateDevices()
+            .then((devices) => {
+              const hasCamera = devices.some((d) => d.kind === 'videoinput');
+              console.error('[QR Camera] Has camera device:', hasCamera);
+              setScanError(hasCamera ? t('rooms.scanCameraDenied') : t('rooms.scanNoCamera'));
+            })
+            .catch(() => {
+              setScanError(t('rooms.scanCameraDenied'));
+            });
+        } else {
+          setScanError(t('rooms.scanCameraDenied'));
+        }
+      });
   };
 
   // Helper: get ImageData from a File, with fallback for older browsers
@@ -345,6 +394,7 @@ export function RoomListPage() {
 
   // Scan from uploaded image
   const handleImageScan = () => {
+    console.log('[QR Image] Step 1: Opening file picker');
     setScanChoiceOpen(false);
 
     const fileInput = document.createElement('input');
@@ -353,8 +403,10 @@ export function RoomListPage() {
     fileInput.onchange = async () => {
       const file = fileInput.files?.[0];
       if (!file) {
+        console.log('[QR Image] Step 2: No file selected');
         return;
       }
+      console.log('[QR Image] Step 2: File selected:', file.name, file.type, file.size);
 
       // Show scanning state while processing
       setScanMode('image');
@@ -365,50 +417,49 @@ export function RoomListPage() {
       scanningRef.current = true;
 
       try {
-        // Load jsQR with a safety timeout
-        const jsQRModule = await Promise.race([
-          import('jsqr'),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('jsQR load timeout')), 10000)
-          ),
-        ]).catch(() => null);
-        const jsQR = (jsQRModule as { default?: typeof import('jsqr').default } | null)?.default;
-        if (!jsQR) {
+        // Load jsQR (should be preloaded)
+        console.log('[QR Image] Step 3: Loading jsQR...');
+        const jsQRMod = await preloadJsQR();
+        if (!jsQRMod) {
+          console.error('[QR Image] Step 3: jsQR not available');
           setScanError(t('rooms.scanNotSupported'));
           return;
         }
+        const jsQR = jsQRMod.default;
+        console.log('[QR Image] Step 3: jsQR loaded');
 
-        // Convert file to ImageData with a safety timeout
-        const imageData = await Promise.race([
-          getImageDataFromFile(file),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('image decode timeout')), 10000)
-          ),
-        ]);
+        // Convert file to ImageData
+        console.log('[QR Image] Step 4: Converting file to ImageData...');
+        const imageData = await getImageDataFromFile(file);
+        console.log('[QR Image] Step 4: ImageData obtained:', imageData.width, 'x', imageData.height);
 
         // Decode QR
+        console.log('[QR Image] Step 5: Decoding QR...');
         const code = jsQR(imageData.data, imageData.width, imageData.height);
+        console.log('[QR Image] Step 5: QR decode result:', code ? 'FOUND' : 'NOT FOUND');
 
         if (code) {
-          // QR found — process result (this will show "Joining..." state in overlay)
+          // QR found — process result
+          console.log('[QR Image] Step 6: Processing QR data:', code.data.substring(0, 30) + '...');
           const handled = await processScanResult(code.data);
+          console.log('[QR Image] Step 6: processScanResult returned:', handled);
           if (handled) {
             return; // Processing or done
           }
         }
 
         // No QR found
+        console.log('[QR Image] Step 7: No QR found in image');
         setScanError(t('rooms.scanNoQR'));
       } catch (err) {
-        console.error('[QR Scan] Image processing error:', err);
+        console.error('[QR Image] Error:', err);
         const message = err instanceof Error ? err.message : '';
         if (message.includes('timeout') || message.includes('aborted')) {
           setScanError(t('rooms.scanError') + ' (请求超时，请检查网络)');
         } else {
-          setScanError(t('rooms.scanError'));
+          setScanError(t('rooms.scanError') + ': ' + message);
         }
       }
-      // Overlay stays open with error — user must click Cancel to dismiss
     };
     fileInput.click();
   };
