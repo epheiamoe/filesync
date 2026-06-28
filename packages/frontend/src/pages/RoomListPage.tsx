@@ -70,7 +70,25 @@ export function RoomListPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
   const scanProcessingRef = useRef(false);
+  // hasStream drives <video> visibility — refs don't trigger re-renders (Samsung/Edge fix)
+  const [hasStream, setHasStream] = useState(false);
+  // Persistent file input ref for image QR scan — avoids dynamic element GC on Samsung/Edge
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const addToast = useStore((s) => s.addToast);
+
+  // Attach stream to video element after React renders the <video> node.
+  // When setHasStream(true) fires in the .then() chain, the video element is not yet
+  // in the DOM (React hasn't re-rendered). This effect bridges that timing gap:
+  // it fires after the commit phase, when videoRef.current is available.
+  useEffect(() => {
+    if (hasStream && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {
+        // autoPlay handles most cases; explicit play() is a fallback for browsers
+        // that defer autoplay until srcObject is set post-mount
+      });
+    }
+  }, [hasStream]);
 
   const loadRooms = useCallback(async () => {
     try {
@@ -143,6 +161,7 @@ export function RoomListPage() {
     setScanMode(null);
     setScanError('');
     setScanProcessing(false);
+    setHasStream(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -269,11 +288,9 @@ export function RoomListPage() {
       .then((stream) => {
         console.log('[QR Camera] Step 4: Stream obtained successfully');
         streamRef.current = stream;
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          return videoRef.current.play();
-        }
+        setHasStream(true); // Trigger re-render to mount <video> element
+        // Note: srcObject is set by useEffect after video element is in the DOM.
+        // videoRef.current is null here because React hasn't committed the re-render yet.
         return Promise.resolve();
       })
       .then(() => {
@@ -283,6 +300,7 @@ export function RoomListPage() {
       .then((jsQRMod) => {
         if (!jsQRMod) {
           console.error('[QR Camera] Step 6: jsQR load failed');
+          setHasStream(false);
           setScanError(t('rooms.scanNotSupported'));
           if (streamRef.current) {
             streamRef.current.getTracks().forEach((t) => t.stop());
@@ -396,72 +414,74 @@ export function RoomListPage() {
   const handleImageScan = () => {
     console.log('[QR Image] Step 1: Opening file picker');
     setScanChoiceOpen(false);
+    fileInputRef.current?.click();
+  };
 
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
-    fileInput.onchange = async () => {
-      const file = fileInput.files?.[0];
-      if (!file) {
-        console.log('[QR Image] Step 2: No file selected');
+  const handleFileSelected = async () => {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      console.log('[QR Image] Step 2: No file selected');
+      return;
+    }
+    console.log('[QR Image] Step 2: File selected:', file.name, file.type, file.size);
+
+    // Reset input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    // Show scanning state while processing
+    setScanMode('image');
+    setScanning(true);
+    setScanError('');
+    setScanProcessing(false);
+    scanProcessingRef.current = false;
+    scanningRef.current = true;
+
+    try {
+      // Load jsQR (should be preloaded)
+      console.log('[QR Image] Step 3: Loading jsQR...');
+      const jsQRMod = await preloadJsQR();
+      if (!jsQRMod) {
+        console.error('[QR Image] Step 3: jsQR not available');
+        setScanError(t('rooms.scanNotSupported'));
         return;
       }
-      console.log('[QR Image] Step 2: File selected:', file.name, file.type, file.size);
+      const jsQR = jsQRMod.default;
+      console.log('[QR Image] Step 3: jsQR loaded');
 
-      // Show scanning state while processing
-      setScanMode('image');
-      setScanning(true);
-      setScanError('');
-      setScanProcessing(false);
-      scanProcessingRef.current = false;
-      scanningRef.current = true;
+      // Convert file to ImageData
+      console.log('[QR Image] Step 4: Converting file to ImageData...');
+      const imageData = await getImageDataFromFile(file);
+      console.log('[QR Image] Step 4: ImageData obtained:', imageData.width, 'x', imageData.height);
 
-      try {
-        // Load jsQR (should be preloaded)
-        console.log('[QR Image] Step 3: Loading jsQR...');
-        const jsQRMod = await preloadJsQR();
-        if (!jsQRMod) {
-          console.error('[QR Image] Step 3: jsQR not available');
-          setScanError(t('rooms.scanNotSupported'));
-          return;
-        }
-        const jsQR = jsQRMod.default;
-        console.log('[QR Image] Step 3: jsQR loaded');
+      // Decode QR
+      console.log('[QR Image] Step 5: Decoding QR...');
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      console.log('[QR Image] Step 5: QR decode result:', code ? 'FOUND' : 'NOT FOUND');
 
-        // Convert file to ImageData
-        console.log('[QR Image] Step 4: Converting file to ImageData...');
-        const imageData = await getImageDataFromFile(file);
-        console.log('[QR Image] Step 4: ImageData obtained:', imageData.width, 'x', imageData.height);
-
-        // Decode QR
-        console.log('[QR Image] Step 5: Decoding QR...');
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-        console.log('[QR Image] Step 5: QR decode result:', code ? 'FOUND' : 'NOT FOUND');
-
-        if (code) {
-          // QR found — process result
-          console.log('[QR Image] Step 6: Processing QR data:', code.data.substring(0, 30) + '...');
-          const handled = await processScanResult(code.data);
-          console.log('[QR Image] Step 6: processScanResult returned:', handled);
-          if (handled) {
-            return; // Processing or done
-          }
-        }
-
-        // No QR found
-        console.log('[QR Image] Step 7: No QR found in image');
-        setScanError(t('rooms.scanNoQR'));
-      } catch (err) {
-        console.error('[QR Image] Error:', err);
-        const message = err instanceof Error ? err.message : '';
-        if (message.includes('timeout') || message.includes('aborted')) {
-          setScanError(t('rooms.scanError') + ' (请求超时，请检查网络)');
-        } else {
-          setScanError(t('rooms.scanError') + ': ' + message);
+      if (code) {
+        // QR found — process result
+        console.log('[QR Image] Step 6: Processing QR data:', code.data.substring(0, 30) + '...');
+        const handled = await processScanResult(code.data);
+        console.log('[QR Image] Step 6: processScanResult returned:', handled);
+        if (handled) {
+          return; // Processing or done
         }
       }
-    };
-    fileInput.click();
+
+      // No QR found
+      console.log('[QR Image] Step 7: No QR found in image');
+      setScanError(t('rooms.scanNoQR'));
+    } catch (err) {
+      console.error('[QR Image] Error:', err);
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('timeout') || message.includes('aborted')) {
+        setScanError(t('rooms.scanError') + ' (请求超时，请检查网络)');
+      } else {
+        setScanError(t('rooms.scanError') + ': ' + message);
+      }
+    }
   };
 
   const handleJoinRoom = async () => {
@@ -796,11 +816,13 @@ export function RoomListPage() {
             className="fixed inset-0 bg-black/80 z-[900] flex flex-col items-center justify-center p-4"
           >
             {/* Camera stream view */}
-            {streamRef.current ? (
+            {hasStream ? (
               <video
                 ref={videoRef}
-                className="max-w-full max-h-[60vh] rounded-lg"
+                autoPlay
                 playsInline
+                muted
+                className="max-w-full max-h-[60vh] rounded-lg"
                 aria-label={t('rooms.scanQR')}
               />
             ) : (
@@ -1010,6 +1032,16 @@ export function RoomListPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Hidden file input for QR image scan — persistent ref avoids Samsung/Edge GC issues */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelected}
+        style={{ display: 'none' }}
+        aria-hidden="true"
+      />
 
       {/* QR Share Modal */}
       <QRShare
