@@ -84,6 +84,9 @@ export interface AppState {
   // ---- QR / Share ----
   pendingShareString: string | null;
 
+  // ---- Destruction Notice ----
+  destructionEvents: DestructionEvent[];
+
   // ---- Actions ----
   login: (session: SessionInfo) => void;
   logout: () => void;
@@ -101,6 +104,10 @@ export interface AppState {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   setPendingShareString: (s: string | null) => void;
+
+  // ---- Destruction Notice ----
+  reportDestruction: (sourceId: string) => void;
+  dismissDestruction: () => void;
 }
 
 export interface Toast {
@@ -110,7 +117,21 @@ export interface Toast {
   duration?: number;
 }
 
+/** Single destruction event tracked for the aggregated notice. */
+export interface DestructionEvent {
+  /** Message or file ID used for deduplication. */
+  sourceId: string;
+  /** Event timestamp in milliseconds. */
+  occurredAt: number;
+}
+
 let toastCounter = 0;
+
+/** Prune destruction events older than the 60-second rolling window. */
+export function pruneEvents(events: DestructionEvent[], now: number): DestructionEvent[] {
+  const cutoff = now - 60_000;
+  return events.filter((e) => e.occurredAt > cutoff);
+}
 
 // Restore session from localStorage on page load so auth survives refresh.
 // Must read synchronously before first render, avoiding the useEffect timing gap
@@ -149,6 +170,7 @@ export const useStore = create<AppState>((set) => ({
   deviceLabel: 'Unknown Device',
   toasts: [],
   pendingShareString: null,
+  destructionEvents: [],
 
   // ---- Auth Actions ----
   login: (session) => {
@@ -286,4 +308,40 @@ export const useStore = create<AppState>((set) => ({
 
   // ---- QR / Share ----
   setPendingShareString: (s) => set({ pendingShareString: s }),
+
+  // ---- Destruction Notice ----
+  reportDestruction: (sourceId) => {
+    // Step 1: deduplicate per source ID (message/file) across WS and local countdown.
+    if (reportedIds.has(sourceId)) return;
+    reportedIds.add(sourceId);
+
+    const now = Date.now();
+    const newEvent: DestructionEvent = { sourceId, occurredAt: now };
+
+    // Step 2: prune events older than 60s and append the new one.
+    set((state) => {
+      const pruned = pruneEvents(state.destructionEvents, now);
+      return { destructionEvents: [...pruned, newEvent] };
+    });
+
+    // Step 3: reset idle timer; 10s without new events dismisses the notice.
+    if (dismissTimer) clearTimeout(dismissTimer);
+    dismissTimer = setTimeout(() => {
+      useStore.getState().dismissDestruction();
+    }, 10_000);
+  },
+
+  dismissDestruction: () => {
+    if (dismissTimer) {
+      clearTimeout(dismissTimer);
+      dismissTimer = null;
+    }
+    reportedIds.clear();
+    set({ destructionEvents: [] });
+  },
 }));
+
+// ---- Destruction Notice helpers ----
+// Module-level Set keeps deduplication state out of Zustand (Set is not JSON-serializable).
+const reportedIds = new Set<string>();
+let dismissTimer: ReturnType<typeof setTimeout> | null = null;

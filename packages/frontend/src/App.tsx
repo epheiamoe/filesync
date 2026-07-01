@@ -21,6 +21,7 @@ import { RoomPage } from '@/pages/RoomPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { PublicViewPage } from '@/pages/PublicViewPage';
 import { ToastContainer } from '@/components/ui/Toast';
+import { DestructionNotice } from '@/components/ui/DestructionNotice';
 
 // Initialize i18n
 initI18n();
@@ -118,6 +119,7 @@ export function App() {
         </Routes>
       </AnimatePresence>
       <ToastContainer />
+      <DestructionNotice />
 
       {/* PWA install prompt — small icon in bottom-right, can be dismissed */}
       {installPrompt && (

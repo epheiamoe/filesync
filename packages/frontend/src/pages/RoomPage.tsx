@@ -327,10 +327,7 @@ export function RoomPage() {
           if (AUTO_DESTROY) {
             removeMessage(payload.id);
           }
-          useStore.getState().addToast({
-            type: 'info',
-            message: t('chat.messageExpired'),
-          });
+          useStore.getState().reportDestruction(payload.id);
           break;
         }
         case 'file_expired': {
@@ -343,10 +340,7 @@ export function RoomPage() {
           if (AUTO_DESTROY) {
             removeFile(payload.id);
           }
-          useStore.getState().addToast({
-            type: 'info',
-            message: t('chat.fileExpired'),
-          });
+          useStore.getState().reportDestruction(payload.id);
           break;
         }
         case 'system': {

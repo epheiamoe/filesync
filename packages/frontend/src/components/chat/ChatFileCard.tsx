@@ -277,7 +277,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const handleDestroyed = useCallback(() => {
     removeFile(file.id);
     if (destroyReasonRef.current === 'expired') {
-      addToast({ type: 'info', message: t('chat.fileExpired') });
+      useStore.getState().reportDestruction(file.id);
     } else {
       addToast({ type: 'info', message: t('chat.recalled') });
     }

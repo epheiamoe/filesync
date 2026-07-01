@@ -79,7 +79,7 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
   const handleDestroyed = useCallback(() => {
     removeMessage(message.id);
     if (destroyReasonRef.current === 'expired') {
-      addToast({ type: 'info', message: t('chat.messageExpired') });
+      useStore.getState().reportDestruction(message.id);
     } else {
       addToast({ type: 'info', message: t('chat.recalled') });
     }
