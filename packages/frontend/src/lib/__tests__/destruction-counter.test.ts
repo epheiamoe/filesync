@@ -64,6 +64,16 @@ describe('reportDestruction deduplication', () => {
 
     expect(useStore.getState().destructionEvents).toHaveLength(2);
   });
+
+  it('counts recalled sourceIds the same way as expired ones', () => {
+    // Recall events use the same reportDestruction action and share the same
+    // sourceId namespace, so they must be counted and deduplicated correctly.
+    useStore.getState().reportDestruction('msg-recalled-1');
+    useStore.getState().reportDestruction('msg-recalled-1');
+    useStore.getState().reportDestruction('file-recalled-1');
+
+    expect(useStore.getState().destructionEvents).toHaveLength(2);
+  });
 });
 
 describe('reportDestruction performance', () => {

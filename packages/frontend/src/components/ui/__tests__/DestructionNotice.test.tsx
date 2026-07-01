@@ -95,4 +95,25 @@ describe('DestructionNotice', () => {
       { timeout: 3_000 },
     );
   }, 22_000);
+
+  it('clears the counter when the room is entered (dismissDestruction)', () => {
+    // Simulate destruction events from a previous room still being present.
+    useStore.getState().reportDestruction('old-room-msg-1');
+    useStore.getState().reportDestruction('old-room-msg-2');
+
+    renderWithMotion(<DestructionNotice />);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText(/2/)).toBeInTheDocument();
+
+    // Simulate RoomPage entering a new room: dismissDestruction resets both
+    // the visible events and the module-level deduplication Set.
+    act(() => {
+      useStore.getState().dismissDestruction();
+    });
+
+    // Card should exit; after the exit animation completes it is gone.
+    return waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
 });

@@ -79,7 +79,9 @@ export function RoomPage() {
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [uploadIsPublic, setUploadIsPublic] = useState(false);
-  const [uploadTTLMinutes, setUploadTTLMinutes] = useState(10);
+  // Auto-destroy TTL is stored in seconds to match the backend API and the
+  // new second-granularity options in ChatInput.
+  const [uploadTTLSeconds, setUploadTTLSeconds] = useState(600);
   const [roomReady, setRoomReady] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [fullQrUrl, setFullQrUrl] = useState<string>('');
@@ -142,6 +144,9 @@ export function RoomPage() {
           createdAt: roomInfo.created_at,
           memberCount: roomInfo.member_count,
         });
+        // Reset the per-room destruction counter when entering a room so we
+        // only count events that happen after the user joins this room.
+        useStore.getState().dismissDestruction();
 
         const msgRes = await api.getMessages(roomInfo.id);
         setMessages(msgRes.messages);
@@ -212,6 +217,9 @@ export function RoomPage() {
         createdAt: roomInfo.created_at,
         memberCount: roomInfo.member_count,
       });
+      // Reset the per-room destruction counter when entering a room so we
+      // only count events that happen after the user joins this room.
+      useStore.getState().dismissDestruction();
       const msgRes = await api.getMessages(roomInfo.id);
       setMessages(msgRes.messages);
 
@@ -397,7 +405,7 @@ export function RoomPage() {
 
   // ---- Shared Send Handler (BUG 1 fix: optimistic local add) ----
 
-  const handleSend = useCallback(async (text: string, ttlMinutes?: number): Promise<boolean> => {
+  const handleSend = useCallback(async (text: string, ttlSeconds?: number): Promise<boolean> => {
     if (!text.trim() || !code || !currentRoom || !session) return false;
     setSending(true);
 
@@ -408,8 +416,7 @@ export function RoomPage() {
       const encrypted = await encryptText(key, text);
       const deviceLabel = parseDeviceLabel();
 
-      // Compute TTL if provided
-      const ttlSeconds = ttlMinutes ? ttlMinutes * 60 : undefined;
+      // ttlSeconds is passed directly from ChatInput (seconds).
 
       const res = await api.sendMessage(
         currentRoom.id,
@@ -495,7 +502,7 @@ export function RoomPage() {
           );
 
           const chunkSize = file.size <= 100 * 1024 * 1024 ? CHUNK_SIZE_SMALL : CHUNK_SIZE_LARGE;
-          const expiresAt = new Date(Date.now() + uploadTTLMinutes * 60 * 1000).toISOString();
+          const expiresAt = new Date(Date.now() + uploadTTLSeconds * 1000).toISOString();
           const visibility = uploadIsPublic ? 'public' : 'private';
 
           // For public files, skip client-side encryption — the raw file is uploaded
@@ -565,7 +572,7 @@ export function RoomPage() {
             mime_type: file.type || 'application/octet-stream',
             visibility: visibility as FileMetaDTO['visibility'],
             expires_at: expiresAt,
-            ttl_seconds: uploadTTLMinutes * 60,
+            ttl_seconds: uploadTTLSeconds,
             created_at: new Date().toISOString(),
           };
           addFile(fileMeta);
@@ -590,7 +597,7 @@ export function RoomPage() {
         }
       }
     },
-    [code, currentRoom, session, uploadTTLMinutes, uploadIsPublic, addFile],
+    [code, currentRoom, session, uploadTTLSeconds, uploadIsPublic, addFile],
   );
 
   // ---- File input ref for the shared input bar ----
@@ -917,8 +924,8 @@ export function RoomPage() {
             disabled={sending}
             uploadIsPublic={uploadIsPublic}
             onUploadPublicChange={setUploadIsPublic}
-            uploadTTLMinutes={uploadTTLMinutes}
-            onUploadTTLChange={setUploadTTLMinutes}
+            uploadTTLSeconds={uploadTTLSeconds}
+            onUploadTTLChange={setUploadTTLSeconds}
           />
         </div>
 

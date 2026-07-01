@@ -78,9 +78,13 @@ export function MessageBubble({ message, decryptedContent, roomCode, isSelf = fa
 
   const handleDestroyed = useCallback(() => {
     removeMessage(message.id);
-    if (destroyReasonRef.current === 'expired') {
-      useStore.getState().reportDestruction(message.id);
-    } else {
+    // Count both expired and recalled messages in the aggregated notice.
+    // The same sourceId is used for deduplication, so a message that is
+    // recalled and later expires will only be counted once.
+    useStore.getState().reportDestruction(message.id);
+    // Keep a lightweight secondary toast for recalls so users still get
+    // immediate feedback when a message is manually recalled.
+    if (destroyReasonRef.current === 'recall') {
       addToast({ type: 'info', message: t('chat.recalled') });
     }
   }, [message.id, removeMessage, addToast]);

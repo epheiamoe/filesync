@@ -276,9 +276,11 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
 
   const handleDestroyed = useCallback(() => {
     removeFile(file.id);
-    if (destroyReasonRef.current === 'expired') {
-      useStore.getState().reportDestruction(file.id);
-    } else {
+    // Count both expired and recalled files in the aggregated notice.
+    // The same sourceId is used for deduplication, so a file that is
+    // recalled and later expires will only be counted once.
+    useStore.getState().reportDestruction(file.id);
+    if (destroyReasonRef.current === 'recall') {
       addToast({ type: 'info', message: t('chat.recalled') });
     }
   }, [file.id, removeFile, addToast]);

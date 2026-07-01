@@ -14,18 +14,18 @@ import { motion } from 'framer-motion';
 import { t } from '@/i18n';
 
 interface ChatInputProps {
-  /** Called when the user sends a message. TTL (in minutes) is passed for all message types. */
-  onSend: (text: string, ttlMinutes?: number) => Promise<boolean>;
+  /** Called when the user sends a message. TTL (in seconds) is passed for all message types. */
+  onSend: (text: string, ttlSeconds?: number) => Promise<boolean>;
   onFileSelect?: (files: FileList) => void;
   disabled?: boolean;
   /** Whether the file being uploaded should be public (unencrypted, shareable). */
   uploadIsPublic?: boolean;
   /** Callback when the public toggle changes. */
   onUploadPublicChange?: (isPublic: boolean) => void;
-  /** Auto-destroy TTL in minutes (10, 30, 60, 360, 1440). */
-  uploadTTLMinutes?: number;
-  /** Callback when auto-destroy TTL changes. */
-  onUploadTTLChange?: (minutes: number) => void;
+  /** Auto-destroy TTL in seconds (10, 30, 60, 300, 600, 1800, 3600, 21600, 86400). */
+  uploadTTLSeconds?: number;
+  /** Callback when auto-destroy TTL changes (value is in seconds). */
+  onUploadTTLChange?: (seconds: number) => void;
   /** Whether to show upload settings (public toggle + auto-destroy selector). */
   showUploadSettings?: boolean;
   /** Whether to show TTL selector (for all message types). Defaults to showUploadSettings. */
@@ -33,11 +33,15 @@ interface ChatInputProps {
 }
 
 const TTL_OPTIONS = [
-  { value: 10, label: 'transfer.destroy10min' },
-  { value: 30, label: 'transfer.destroy30min' },
-  { value: 60, label: 'transfer.destroy1hr' },
-  { value: 360, label: 'transfer.destroy6hr' },
-  { value: 1440, label: 'transfer.destroy24hr' },
+  { value: 10, label: 'transfer.destroy10sec' },
+  { value: 30, label: 'transfer.destroy30sec' },
+  { value: 60, label: 'transfer.destroy1min' },
+  { value: 300, label: 'transfer.destroy5min' },
+  { value: 600, label: 'transfer.destroy10min' },
+  { value: 1800, label: 'transfer.destroy30min' },
+  { value: 3600, label: 'transfer.destroy1hr' },
+  { value: 21600, label: 'transfer.destroy6hr' },
+  { value: 86400, label: 'transfer.destroy24hr' },
 ];
 
 export function ChatInput({
@@ -46,7 +50,7 @@ export function ChatInput({
   disabled,
   uploadIsPublic = false,
   onUploadPublicChange,
-  uploadTTLMinutes = 10,
+  uploadTTLSeconds = 600,
   onUploadTTLChange,
   showUploadSettings = true,
   showTtlSelector,
@@ -61,7 +65,7 @@ export function ChatInput({
   const handleSend = useCallback(async () => {
     if (!text.trim() || disabled) return;
     const messageText = text.trim();
-    onSend(messageText, uploadTTLMinutes)
+    onSend(messageText, uploadTTLSeconds)
       .then((success) => {
         if (success) {
           setText('');
@@ -73,7 +77,7 @@ export function ChatInput({
         }
         // On failure, don't clear — user can retry
       });
-  }, [text, disabled, onSend, uploadTTLMinutes]);
+  }, [text, disabled, onSend, uploadTTLSeconds]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -130,7 +134,7 @@ export function ChatInput({
             <label className="flex items-center gap-1.5 text-xs text-muted">
               <span>{t('transfer.autoDestroy')}:</span>
               <select
-                value={uploadTTLMinutes}
+                value={uploadTTLSeconds}
                 onChange={(e) => onUploadTTLChange?.(Number(e.target.value))}
                 className="text-xs border border-hairline rounded px-1.5 py-0.5 bg-canvas-card text-body"
                 aria-label={t('transfer.autoDestroy')}

@@ -142,6 +142,8 @@ function TextListItem({ message, decryptedContent }: TextListItemProps) {
 
   const handleDestroyed = useCallback(() => {
     removeMessage(message.id);
+    // Recalled text messages also count toward the aggregated destruction notice.
+    useStore.getState().reportDestruction(message.id);
     addToast({ type: 'info', message: t('chat.recalled') });
   }, [message.id, removeMessage, addToast]);
 

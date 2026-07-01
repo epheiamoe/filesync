@@ -73,7 +73,7 @@ export function DestructionNotice() {
                     after:translate-y-[6px] after:scale-[0.96]
                 "
               >
-                {/* Flame icon (SVG) indicating destructive action. */}
+                {/* Shield-alert icon (Lucide-style SVG) indicating destructive action. */}
                 <svg
                   className="w-5 h-5 flex-shrink-0 text-error"
                   viewBox="0 0 24 24"
@@ -84,8 +84,9 @@ export function DestructionNotice() {
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M12 2c0 4-4 6-4 10 0 2.21 1.79 4 4 4s4-1.79 4-4c0-4-4-6-4-10z" />
-                  <path d="M12 12c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                  <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+                  <path d="M12 8v4" />
+                  <path d="M12 16h.01" />
                 </svg>
 
                 <p className="text-sm flex-1">
