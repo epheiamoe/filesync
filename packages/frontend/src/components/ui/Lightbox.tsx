@@ -34,6 +34,8 @@ export interface LightboxProps {
   alt: string;
   /** Optional callback when the download button is clicked. */
   onDownload?: () => void;
+  /** Optional callback when the share button is clicked (public files). */
+  onShare?: () => void;
   /** Optional callback when the recall button is clicked (for own files). */
   onRecall?: () => void;
   /** Whether the file is the user's own (shows recall button in context). */
@@ -46,6 +48,7 @@ export function Lightbox({
   src,
   alt,
   onDownload,
+  onShare,
   onRecall,
   showRecall,
 }: LightboxProps) {
@@ -129,6 +132,31 @@ export function Lightbox({
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
                   {t('chat.downloadFile')}
+                </button>
+              )}
+              {onShare && (
+                <button
+                  onClick={onShare}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                  aria-label={t('rooms.share')}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  {t('rooms.share')}
                 </button>
               )}
               {showRecall && onRecall && (

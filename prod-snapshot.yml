@@ -1,0 +1,63 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - heading "filesync" [level=1] [ref=e6]
+        - generic [ref=e7]:
+          - generic [ref=e8]: admin
+          - button "管理面板" [ref=e9] [cursor=pointer]
+          - button "退出登录" [ref=e10] [cursor=pointer]
+    - main [ref=e11]:
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - button "+ 创建新房间" [ref=e14] [cursor=pointer]
+          - button "扫描 QR" [active] [ref=e15] [cursor=pointer]:
+            - img [ref=e16]
+            - text: 扫描 QR
+        - generic [ref=e24]:
+          - textbox "分享密钥" [ref=e26]:
+            - /placeholder: 粘贴分享字符串
+          - button "加入房间" [ref=e27] [cursor=pointer]
+      - heading "房间" [level=2] [ref=e28]
+      - generic [ref=e34]:
+        - generic [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]:
+            - code [ref=e39]: "0032"
+            - generic [ref=e40]: 1 成员 · 0 文件
+          - generic [ref=e41]:
+            - generic [ref=e42]: "已创建: 2026/6/28"
+            - button "删除房间 0032" [ref=e43]:
+              - img [ref=e44]
+              - text: 删除房间
+        - generic [ref=e47] [cursor=pointer]:
+          - generic [ref=e48]:
+            - code [ref=e50]: "1314"
+            - generic [ref=e51]: 2 成员 · 0 文件
+          - generic [ref=e52]:
+            - generic [ref=e53]: "已创建: 2026/6/27"
+            - button "删除房间 1314" [ref=e54]:
+              - img [ref=e55]
+              - text: 删除房间
+        - generic [ref=e58] [cursor=pointer]:
+          - generic [ref=e59]:
+            - code [ref=e61]: "4758"
+            - generic [ref=e62]: 0 成员 · 0 文件
+          - generic [ref=e63]:
+            - generic [ref=e64]: "已创建: 2026/6/25"
+            - button "删除房间 4758" [ref=e65]:
+              - img [ref=e66]
+              - text: 删除房间
+        - generic [ref=e69] [cursor=pointer]:
+          - generic [ref=e70]:
+            - code [ref=e72]: "1839"
+            - generic [ref=e73]: 0 成员 · 0 文件
+          - generic [ref=e74]:
+            - generic [ref=e75]: "已创建: 2026/6/23"
+            - button "删除房间 1839" [ref=e76]:
+              - img [ref=e77]
+              - text: 删除房间
+  - generic "通知" [ref=e33]
+  - generic [ref=e79]:
+    - button "Install App" [ref=e80] [cursor=pointer]:
+      - img [ref=e81]
+    - button "Dismiss" [ref=e84] [cursor=pointer]: ×

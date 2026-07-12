@@ -86,11 +86,17 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
   const isRecalled = !!file.recalled_at;
   const isExpired = new Date(file.expires_at) < new Date();
   const isOwnFile = file.uploader_session_id === session?.token;
+  const isPublic = file.visibility === 'public';
+  const isEncrypted = file.encrypted !== false;
 
-  // Decrypt filename on expand
+  // Decrypt filename on expand — public files store the original filename plaintext.
   const handleExpand = async () => {
     setExpanded(!expanded);
     if (!expanded && !decryptedFilename) {
+      if (isPublic) {
+        setDecryptedFilename(file.encrypted_filename);
+        return;
+      }
       try {
         const key = getRoomKey(roomCode);
         if (key) {
@@ -108,8 +114,8 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
     try {
       const response = await api.downloadFile(file.id);
 
-      // Check encryption flag before using bytes
-      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      // Use the file's encrypted flag instead of the response header because some
+      // endpoints incorrectly set X-File-Encrypted for public files.
       let blob: Blob;
 
       if (isEncrypted) {
@@ -155,21 +161,21 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
     } finally {
       setDownloading(false);
     }
-  }, [file, roomCode, decryptedFilename, addToast]);
+  }, [file, roomCode, decryptedFilename, addToast, isEncrypted]);
 
-  // View file — client-side fetch → decrypt → display by MIME type.
-  // All files are stored encrypted in R2. The X-File-Encrypted response
-  // header signals that the blob must be decrypted client-side before rendering.
+  // View file — client-side fetch → decrypt (if private) → display by MIME type.
+  // Public files use the unauthenticated /public endpoint.
   const handleView = useCallback(async () => {
     if (viewLoading) return; // Loading guard: prevent duplicate fetches on rapid clicks
     setViewLoading(true);
 
     try {
       // 1. Fetch raw bytes from server
-      const response = await api.getFileRaw(file.id);
+      const response = isPublic
+        ? await api.getPublicFileRaw(file.id)
+        : await api.getFileRaw(file.id);
 
-      // 2. Check encryption flag
-      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      // 2. Use the file's encrypted flag (public files are plaintext)
       let bytes: ArrayBuffer;
 
       if (isEncrypted) {
@@ -184,8 +190,6 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
         const encBuf = await response.arrayBuffer();
         bytes = await decryptFile(key, encBuf);
       } else {
-        // File is not encrypted (should not happen in current architecture
-        // where all files are encrypted, but handled for robustness)
         bytes = await response.arrayBuffer();
       }
 
@@ -224,7 +228,7 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
     } finally {
       setViewLoading(false);
     }
-  }, [file, roomCode, viewLoading, decryptedFilename, addToast]);
+  }, [file, roomCode, viewLoading, decryptedFilename, addToast, isPublic, isEncrypted]);
 
   // Recall with destroy animation
   const handleRecall = useCallback(async () => {
@@ -441,6 +445,27 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
                 </svg>
                 {t('transfer.download')}
               </Button>
+              {isPublic && !isRecalled && (
+                <Button variant="secondary" size="sm" onClick={() => window.open(`${window.location.origin}/view/${file.id}`, '_blank')}>
+                  <svg
+                    className="w-3.5 h-3.5 mr-1"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  {t('rooms.share')}
+                </Button>
+              )}
               {!isRecalled && isOwnFile && (
                 <Button variant="danger" size="sm" onClick={handleRecall}>
                   <svg
@@ -470,6 +495,7 @@ export function FileItem({ file, roomCode, isSelected, onToggleSelect }: FileIte
       onClose={handleLightboxClose}
       src={lightboxSrc}
       alt={decryptedFilename || t('chat.viewImage')}
+      onShare={isPublic ? () => window.open(`${window.location.origin}/view/${file.id}`, '_blank') : undefined}
     />
     {/* TextViewModal for text files opened from FileItem */}
     <TextViewModal

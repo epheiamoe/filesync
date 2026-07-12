@@ -340,6 +340,10 @@ export const api = {
     return request<Response>('GET', `/files/${fileId}/raw`, undefined, { rawResponse: true });
   },
 
+  async getPublicFileRaw(fileId: string): Promise<Response> {
+    return request<Response>('GET', `/files/${fileId}/public`, undefined, { rawResponse: true });
+  },
+
   async getFileInfo(fileId: string): Promise<FileMetaDTO> {
     const res = await request<ApiResponse<FileMetaDTO>>('GET', `/files/${fileId}/info`);
     return res.data!;

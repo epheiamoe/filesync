@@ -55,6 +55,8 @@ export interface FileMetaDTO {
   r2_key?: string;
   /** SHA-256 hash of the original (decrypted) file content — for integrity verification. */
   file_hash?: string;
+  /** Whether the file content is encrypted in storage. Derived from visibility when missing. */
+  encrypted?: boolean;
 }
 
 export interface OnlineMember {
@@ -260,12 +262,22 @@ export const useStore = create<AppState>((set) => ({
       if (state.files.some((f) => f.id === file.id)) {
         return state;
       }
-      return { files: [...state.files, file] };
+      // Derive encrypted flag from visibility if the backend/WS omitted it.
+      const normalized: FileMetaDTO = {
+        ...file,
+        encrypted: file.encrypted ?? file.visibility !== 'public',
+      };
+      return { files: [...state.files, normalized] };
     });
   },
 
   setFiles: (files) => {
-    set({ files });
+    // Normalize encrypted flag derived from visibility for older records / WS payloads.
+    const normalized = files.map((f) => ({
+      ...f,
+      encrypted: f.encrypted ?? f.visibility !== 'public',
+    }));
+    set({ files: normalized });
   },
 
   removeFile: (id) => {

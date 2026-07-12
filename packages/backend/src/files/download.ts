@@ -161,8 +161,10 @@ export async function handleFileDownload(c: Context<AppContext>): Promise<Respon
     // would break browser rendering for image/text/PDF files if not overridden.
     headers.set('Content-Type', file.mime_type);
     headers.set('Content-Disposition', isBrowserViewable ? 'inline' : 'attachment');
-    // Always set X-File-Encrypted: all files are client-encrypted before upload
-    headers.set('X-File-Encrypted', 'true');
+    // X-File-Encrypted is only true for private (client-encrypted) files.
+    // Public files are stored plaintext, so omitting/false prevents clients
+    // from attempting decryption on unencrypted bytes.
+    headers.set('X-File-Encrypted', isPublic ? 'false' : 'true');
     headers.set('X-File-Id', fileId);
     headers.set('Cache-Control', isPublic ? 'public, max-age=60' : 'private, max-age=60');
 
@@ -675,10 +677,10 @@ export async function handleRawFile(c: Context<AppContext>): Promise<Response> {
     headers.set('Content-Type', file.mime_type);
     // Always use inline for the raw endpoint (browser rendering)
     headers.set('Content-Disposition', 'inline');
-    // Always set X-File-Encrypted: all files are client-encrypted before upload
-    headers.set('X-File-Encrypted', 'true');
+    // Public files are stored plaintext; private files are client-encrypted.
+    headers.set('X-File-Encrypted', isPublic ? 'false' : 'true');
     headers.set('X-File-Id', fileId);
-    headers.set('Cache-Control', 'private, max-age=60');
+    headers.set('Cache-Control', isPublic ? 'public, max-age=60' : 'private, max-age=60');
 
     if (r2Object.size) {
       headers.set('Content-Length', r2Object.size.toString());

@@ -99,6 +99,8 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const isOwnFile = file.uploader_session_id === session?.token;
   const isRecalled = !!file.recalled_at;
   const isPublic = file.visibility === 'public';
+  /** True if the file content is encrypted. Public files are stored plaintext. */
+  const isEncrypted = file.encrypted !== false;
   /** True when expires_at is in the past and the file hasn't been recalled.
    *  Used to show an "已过期" badge and disable action buttons.
    *  Uses a 1-second interval to re-evaluate so the badge appears
@@ -140,9 +142,14 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const downloadQrRef = useRef<HTMLCanvasElement>(null);
   const previewQrRef = useRef<HTMLCanvasElement>(null);
 
-  // Decrypt filename on mount
+  // Decrypt filename on mount — public files store the original filename plaintext.
   useEffect(() => {
-    const decrypt = async () => {
+    const resolveName = async () => {
+      if (isPublic) {
+        // Public files skip client-side filename encryption.
+        setDecryptedName(file.encrypted_filename);
+        return;
+      }
       try {
         const key = getRoomKey(roomCode);
         if (key) {
@@ -153,14 +160,16 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         setDecryptedName(`[${t('e2ee.decryptError')}]`);
       }
     };
-    decrypt();
-  }, [file.encrypted_filename, roomCode]);
+    resolveName();
+  }, [file.encrypted_filename, roomCode, isPublic]);
 
-  // Fetch image blob for inline display via the raw endpoint.
-  // All files are stored encrypted in R2 (even "public" files are encrypted
-  // at the storage layer — visibility only controls auth). The X-File-Encrypted
-  // response header signals that the blob must be decrypted client-side
-  // before rendering.
+  // Fetch image blob for inline display.
+  // Private files are stored encrypted in R2 and must be decrypted client-side.
+  // Public files are stored plaintext and are streamed via the unauthenticated
+  // /public endpoint so external recipients can view them without a room key.
+  // The X-File-Encrypted response header is a fallback hint, but we primarily
+  // rely on the file.encrypted flag to avoid trusting endpoints that may set it
+  // incorrectly for public files.
   //
   // We use a ref to track the current blob URL so the cleanup function can
   // revoke it on unmount or when file.id changes, preventing memory leaks
@@ -173,7 +182,10 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     let revoked = false;
     const fetchImage = async () => {
       try {
-        const response = await api.getFileRaw(file.id);
+        // Public files can be streamed without auth via the public endpoint.
+        const response = isPublic
+          ? await api.getPublicFileRaw(file.id)
+          : await api.getFileRaw(file.id);
         const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
         let blob = await response.blob();
 
@@ -222,8 +234,8 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     try {
       const response = await api.downloadFile(file.id);
 
-      // Check encryption flag before using bytes
-      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      // Use the file's visibility/encrypted flag instead of the response header
+      // because some endpoints incorrectly set X-File-Encrypted for public files.
       let blob: Blob;
 
       if (isEncrypted) {
@@ -331,8 +343,10 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
   const handleOpenText = useCallback(async () => {
     setTextContentLoading(true);
     try {
-      const response = await api.getFileRaw(file.id);
-      const isEncrypted = response.headers.get('X-File-Encrypted') === 'true';
+      // Public files can be streamed without auth via the public endpoint.
+      const response = isPublic
+        ? await api.getPublicFileRaw(file.id)
+        : await api.getFileRaw(file.id);
       let content: string;
 
       if (isEncrypted) {
@@ -357,7 +371,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
     } finally {
       setTextContentLoading(false);
     }
-  }, [file.id, roomCode, addToast]);
+  }, [file.id, isPublic, isEncrypted, roomCode, addToast]);
 
   // Image right-click context menu
   const handleImageContextMenu = useCallback((e: React.MouseEvent) => {
@@ -520,7 +534,35 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
                   <span className="text-[10px] text-muted-soft truncate max-w-[60%]">
                     {decryptedName || ''}
                   </span>
-                  <span className="text-[10px] text-muted-soft">{time}</span>
+                  <div className="flex items-center gap-2">
+                    {isPublic && !isRecalled && (
+                      <button
+                        type="button"
+                        onClick={handleOpenShare}
+                        className="text-[10px] flex items-center gap-1 text-primary hover:text-primary-active transition-colors"
+                        aria-label={t('chat.shareDialog')}
+                      >
+                        <svg
+                          className="w-3 h-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                        </svg>
+                        {t('rooms.share')}
+                      </button>
+                    )}
+                    <span className="text-[10px] text-muted-soft">{time}</span>
+                  </div>
                 </div>
                 {/* Countdown circle for file expiry */}
                 {!isRecalled && file.expires_at && (
@@ -645,6 +687,7 @@ export function ChatFileCard({ file, roomCode, isSelf }: ChatFileCardProps) {
         src={imageBlobUrl || ''}
         alt={decryptedName || t('chat.viewImage')}
         onDownload={handleDownload}
+        onShare={isPublic ? handleOpenShare : undefined}
         onRecall={isOwnFile && !isRecalled && !isExpired ? handleRecall : undefined}
         showRecall={isOwnFile && !isRecalled && !isExpired}
       />
