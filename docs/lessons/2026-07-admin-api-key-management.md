@@ -30,7 +30,56 @@
    pnpm --filter @filesync/backend run deploy
    ```
 
-4. 最后部署前端 Pages。
+4. 最后部署前端 Pages。注意：生产构建的 `VITE_API_BASE_URL` 必须以 `/api` 结尾（详见下方）。
+
+## 关键教训：生产构建的 `VITE_API_BASE_URL` 必须以 `/api` 结尾
+
+后端所有路由都注册在 `/api/*` 下（如 `/api/auth/api-keys`、`/api/admin/stats`）。前端 `api.ts` 中的路径是相对路径（如 `/auth/api-keys`、`/admin/stats`），因此 `VITE_API_BASE_URL` 必须包含 `/api` 后缀：
+
+```bash
+VITE_API_BASE_URL=https://filesync-api.epheia.workers.dev/api
+```
+
+### 错误示例
+
+如果构建时设置成：
+
+```bash
+VITE_API_BASE_URL=https://filesync-api.epheia.workers.dev
+```
+
+前端会请求：
+
+- `https://filesync-api.epheia.workers.dev/auth/api-keys`（404）
+- `https://filesync-api.epheia.workers.dev/admin/stats`（404）
+
+而正确请求应为：
+
+- `https://filesync-api.epheia.workers.dev/api/auth/api-keys`
+- `https://filesync-api.epheia.workers.dev/api/admin/stats`
+
+### 正确做法
+
+1. 参考 `packages/frontend/.env.example`：
+
+   ```
+   VITE_API_BASE_URL=https://filesync-api.example.com/api
+   ```
+
+2. 生产构建命令：
+
+   ```bash
+   cd packages/frontend
+   VITE_API_BASE_URL=https://filesync-api.epheia.workers.dev/api pnpm run build
+   npx wrangler pages deploy dist --branch=main --commit-dirty=true
+   ```
+
+3. 部署后验证：自定义域名返回的 JS 中 `BASE_URL` 以 `/api` 结尾。
+
+### 参考
+
+- `packages/frontend/src/lib/api.ts`：前端路径拼接逻辑。
+- `packages/frontend/.env.example`：环境变量示例。
 
 ### 为什么是 `label TEXT` 而不是 NOT NULL
 
