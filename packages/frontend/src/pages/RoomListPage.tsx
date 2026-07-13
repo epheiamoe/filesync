@@ -13,7 +13,7 @@ import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { generateRoomKey, encodeShareString, hashKey, storeRoomKey, decodeShareString, hasRoomKey, getOrCreateClientFingerprint } from '@/lib/crypto';
-import { buildLoginUrl } from '@/lib/url';
+import { buildLoginUrl, splitShareAndCredential } from '@/lib/url';
 import { parseDeviceLabel } from '@/lib/device';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -46,16 +46,7 @@ export function RoomListPage() {
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
   const [customCode, setCustomCode] = useState('');
-  const [shareStringInput, setShareStringInput] = useState(() => {
-    // If user arrived via QR scan auto-login, pre-populate the share string
-    const pending = useStore.getState().pendingShareString;
-    if (pending) {
-      // Clear after reading (one-time use)
-      setTimeout(() => useStore.getState().setPendingShareString(null), 0);
-      return pending;
-    }
-    return '';
-  });
+  const [shareStringInput, setShareStringInput] = useState('');
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
@@ -70,6 +61,9 @@ export function RoomListPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
   const scanProcessingRef = useRef(false);
+  // Each scan gets an identity. Async camera/image work must match the current
+  // identity before it is allowed to mutate the UI or navigate after a cancel.
+  const scanAttemptRef = useRef(0);
   // hasStream drives <video> visibility — refs don't trigger re-renders (Samsung/Edge fix)
   const [hasStream, setHasStream] = useState(false);
   // Persistent file input ref for image QR scan — avoids dynamic element GC on Samsung/Edge
@@ -89,6 +83,20 @@ export function RoomListPage() {
       });
     }
   }, [hasStream]);
+
+  // Release the camera on unmount — getUserMedia tracks are not stopped by
+  // React unmounting the <video> element, so navigating away mid-scan would
+  // otherwise leave the camera running for the rest of the SPA session.
+  useEffect(() => {
+    return () => {
+      scanAttemptRef.current += 1;
+      scanningRef.current = false;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   const loadRooms = useCallback(async () => {
     try {
@@ -155,6 +163,10 @@ export function RoomListPage() {
 
   // Stop camera scanning (extracted to component level for reuse)
   const stopScanning = useCallback(() => {
+    // Invalidate any pending getUserMedia, image decode, or join continuation
+    // before resetting state. A stream that resolves after cancellation is
+    // stopped in its continuation rather than reviving the scanner.
+    scanAttemptRef.current += 1;
     scanningRef.current = false;
     scanProcessingRef.current = false;
     setScanning(false);
@@ -169,16 +181,33 @@ export function RoomListPage() {
   }, []);
 
   // Auto-join room for already-authenticated users
-  const handleAutoJoin = useCallback(async (roomCode: string, key: Uint8Array) => {
+  const handleAutoJoin = useCallback(async (
+    roomCode: string,
+    key: Uint8Array,
+    scanAttempt?: number,
+  ): Promise<boolean> => {
+    const wasCancelled = () =>
+      scanAttempt !== undefined &&
+      (scanAttempt !== scanAttemptRef.current || !scanningRef.current);
+
+    if (wasCancelled()) return false;
     setJoining(true);
     try {
       const keyHash = await hashKey(key);
+      if (wasCancelled()) return false;
+
       const deviceLabel = parseDeviceLabel();
       await api.joinRoom(roomCode, keyHash, deviceLabel);
+      // An HTTP request cannot be un-sent after the user cancels, but do not
+      // store the key, show a success toast, or force-navigate after cancel.
+      if (wasCancelled()) return false;
+
       storeRoomKey(roomCode, key);
       addToast({ type: 'success', message: t('rooms.joined') });
       navigate(`/room/${roomCode}`);
+      return true;
     } catch (err: unknown) {
+      if (wasCancelled()) return false;
       const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
       console.error('[QR Scan] Auto-join failed:', err);
       addToast({ type: 'error', message });
@@ -189,58 +218,97 @@ export function RoomListPage() {
   }, [navigate, addToast]);
 
   // Process QR scan result: extract share string, auto-join if authenticated
-  const processScanResult = useCallback(async (content: string): Promise<boolean> => {
+  const processScanResult = useCallback(async (
+    content: string,
+    scanAttempt = scanAttemptRef.current,
+  ): Promise<boolean> => {
+    const wasCancelled = () =>
+      scanAttempt !== scanAttemptRef.current || !scanningRef.current;
+    if (wasCancelled()) return true;
+
     let rawShare: string | null = null;
 
     // Try to find login#<shareString>[-<credential>] pattern
     const loginMatch = content.match(/login#(.+)/);
     if (loginMatch) {
-      rawShare = decodeURIComponent(loginMatch[1]);
+      try {
+        rawShare = decodeURIComponent(loginMatch[1]);
+      } catch {
+        rawShare = loginMatch[1];
+      }
     }
     // Direct share string format: "4821-XXXX-XXXX-..."
     else if (/^\d{4}-[0-9A-HJKMNP-TV-Z]+(-[0-9A-HJKMNP-TV-Z]+)*$/i.test(content)) {
       rawShare = content;
     }
 
-    if (!rawShare) return false;
+    if (!rawShare || wasCancelled()) return !!rawShare;
 
-    // Strip credential if present (last 6-char segment after dash)
-    const lastDash = rawShare.lastIndexOf('-');
-    let shareString = rawShare;
-    if (lastDash > 4) {
-      const potentialCred = rawShare.slice(lastDash + 1);
-      if (potentialCred.length === 6 && /^[A-Za-z0-9]{6}$/.test(potentialCred)) {
-        shareString = rawShare.slice(0, lastDash);
-      }
-    }
+    // Strip temp credential if present (8-char current / 6-char legacy code
+    // appended by buildLoginUrl; key groups are always 4 chars).
+    const { shareString } = splitShareAndCredential(rawShare);
 
     // If already authenticated → auto-join the room directly
     const { isAuthenticated } = useStore.getState();
     if (isAuthenticated) {
       const decoded = decodeShareString(shareString);
-      if (decoded) {
-        setScanProcessing(true);
-        scanProcessingRef.current = true;
-        try {
-          await handleAutoJoin(decoded.roomCode, decoded.key);
-          // Success: handleAutoJoin navigates away, overlay will unmount
-          return true;
-        } catch (err) {
-          // Auto-join failed — show error in overlay and keep it open
-          const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
-          setScanError(message);
-          setScanProcessing(false);
-          scanProcessingRef.current = false;
-          return true;
-        }
+      if (!decoded) {
+        // The QR matched our format but the key doesn't decode (e.g. legacy
+        // 16-char share string) — surface the error instead of bouncing the
+        // authenticated user to the login page.
+        setScanError(t('rooms.invalidShareString'));
+        return true;
+      }
+      setScanProcessing(true);
+      scanProcessingRef.current = true;
+      try {
+        const joined = await handleAutoJoin(decoded.roomCode, decoded.key, scanAttempt);
+        if (!joined || wasCancelled()) return true;
+        // Success: handleAutoJoin navigated away. Stop the camera stream
+        // explicitly — unmounting alone does not release getUserMedia tracks,
+        // leaving the camera indicator on after entering the room.
+        stopScanning();
+        return true;
+      } catch (err) {
+        // Auto-join failed — show error in overlay and keep it open
+        const message = err instanceof Error ? err.message : t('rooms.keyMismatch');
+        setScanError(message);
+        setScanProcessing(false);
+        scanProcessingRef.current = false;
+        return true;
       }
     }
 
-    // Not authenticated or invalid share → navigate to login
+    // Not authenticated → hand the full invite (incl. credential) to the
+    // login page, which auto-logs-in via the embedded temp credential.
+    if (wasCancelled()) return true;
     stopScanning();
     navigate(`/login#${encodeURIComponent(rawShare)}`);
     return true;
   }, [navigate, stopScanning, handleAutoJoin]);
+
+  // ---- Post-login auto-join (full-URL QR flow) ----
+  // LoginPage stores the share string from the URL hash before navigating
+  // here. If it decodes, join the room directly — scanning a full QR should
+  // land the user in the room, not on a form. Fall back to pre-filling the
+  // join input if decoding or joining fails.
+  useEffect(() => {
+    const pending = useStore.getState().pendingShareString;
+    if (!pending) return;
+    useStore.getState().setPendingShareString(null); // one-time use
+
+    const { shareString } = splitShareAndCredential(pending);
+    const decoded = decodeShareString(shareString);
+    if (decoded) {
+      handleAutoJoin(decoded.roomCode, decoded.key).catch(() => {
+        setShareStringInput(shareString);
+      });
+    } else {
+      setShareStringInput(shareString);
+    }
+    // Run once on mount: pendingShareString is only set by pre-navigation flows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Show scan method choice dialog
   const handleScanQR = () => {
@@ -254,12 +322,19 @@ export function RoomListPage() {
   // prompt and immediately return 'Permission Denied'.
   const handleCameraScan = () => {
     console.log('[QR Camera] Step 1: Button clicked, starting synchronous getUserMedia');
+    const scanAttempt = scanAttemptRef.current + 1;
+    scanAttemptRef.current = scanAttempt;
     
-    // Step 1: Start getUserMedia IMMEDIATELY (synchronous Promise creation)
+    // Step 1: Start getUserMedia IMMEDIATELY (synchronous Promise creation).
+    // facingMode ideal:'environment' selects the back camera on phones (the
+    // front camera cannot scan a QR shown on another device) while remaining
+    // a soft constraint so laptops with only a front camera still work.
     let streamPromise: Promise<MediaStream> | null = null;
     if (navigator.mediaDevices?.getUserMedia) {
       try {
-        streamPromise = navigator.mediaDevices.getUserMedia({ video: true });
+        streamPromise = navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+        });
         console.log('[QR Camera] Step 2: getUserMedia Promise created synchronously');
       } catch (e) {
         console.error('[QR Camera] Step 2: getUserMedia synchronous throw:', e);
@@ -286,18 +361,21 @@ export function RoomListPage() {
     // (NOT async/await, to keep the original event handler synchronous)
     streamPromise
       .then((stream) => {
+        // The permission prompt can resolve after the user cancelled the
+        // scanner. Never attach a stale stream; stop it immediately instead.
+        if (scanAttempt !== scanAttemptRef.current || !scanningRef.current) {
+          stream.getTracks().forEach((track) => track.stop());
+          return null;
+        }
         console.log('[QR Camera] Step 4: Stream obtained successfully');
         streamRef.current = stream;
         setHasStream(true); // Trigger re-render to mount <video> element
         // Note: srcObject is set by useEffect after video element is in the DOM.
         // videoRef.current is null here because React hasn't committed the re-render yet.
-        return Promise.resolve();
-      })
-      .then(() => {
-        console.log('[QR Camera] Step 5: Video playing, loading jsQR');
         return preloadJsQR();
       })
       .then((jsQRMod) => {
+        if (scanAttempt !== scanAttemptRef.current || !scanningRef.current) return;
         if (!jsQRMod) {
           console.error('[QR Camera] Step 6: jsQR load failed');
           setHasStream(false);
@@ -313,7 +391,7 @@ export function RoomListPage() {
         console.log('[QR Camera] Step 6: jsQR loaded, starting scan loop');
         
         const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
           console.error('[QR Camera] Step 6: Canvas context failed');
           setScanError(t('rooms.scanError'));
@@ -322,10 +400,14 @@ export function RoomListPage() {
         }
 
         const scanFrame = () => {
-          if (!videoRef.current || !scanningRef.current || scanProcessingRef.current) return;
+          if (!scanningRef.current || scanProcessingRef.current) return;
 
+          // The <video> element mounts on the re-render triggered by
+          // setHasStream(true) and may not be committed yet on the first
+          // frame. Keep polling instead of dying silently — a one-shot
+          // check here left the camera preview running with no scanner.
           const video = videoRef.current;
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
+          if (video && video.videoWidth > 0 && video.videoHeight > 0) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0);
@@ -335,14 +417,22 @@ export function RoomListPage() {
               const code = jsQR(imageData.data, imageData.width, imageData.height);
               if (code) {
                 console.log('[QR Camera] Step 7: QR code found:', code.data.substring(0, 20) + '...');
-                processScanResult(code.data).then((handled) => {
+                processScanResult(code.data, scanAttempt).then((handled) => {
                   if (handled) {
                     console.log('[QR Camera] Step 8: QR processed successfully');
                     return;
                   }
+                  // Unrecognized QR content (e.g. someone else's QR in frame):
+                  // resume the scan loop instead of freezing on the preview.
                   console.log('[QR Camera] Step 8: QR not recognized, continuing scan');
+                  if (scanningRef.current && !scanProcessingRef.current) {
+                    requestAnimationFrame(scanFrame);
+                  }
                 }).catch((err) => {
                   console.error('[QR Camera] Step 8: processScanResult error:', err);
+                  if (scanningRef.current && !scanProcessingRef.current) {
+                    requestAnimationFrame(scanFrame);
+                  }
                 });
                 return;
               }
@@ -359,13 +449,21 @@ export function RoomListPage() {
         requestAnimationFrame(scanFrame);
       })
       .catch((err) => {
-        console.error('[QR Camera] Stream error:', err.name, err.message);
-        // Permission denied or no camera — try to determine which
-        if (navigator.mediaDevices?.enumerateDevices) {
+        if (scanAttempt !== scanAttemptRef.current || !scanningRef.current) return;
+        const name = err instanceof DOMException ? err.name : '';
+        console.error('[QR Camera] Stream error:', name, err?.message);
+        // Map the failure to a specific, actionable message.
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+          setScanError(t('rooms.scanNoCamera'));
+        } else if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+          setScanError(t('rooms.scanCameraDenied'));
+        } else if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+          setScanError(t('rooms.scanCameraBusy'));
+        } else if (navigator.mediaDevices?.enumerateDevices) {
+          // Unknown failure — fall back to detecting whether a camera exists
           navigator.mediaDevices.enumerateDevices()
             .then((devices) => {
               const hasCamera = devices.some((d) => d.kind === 'videoinput');
-              console.error('[QR Camera] Has camera device:', hasCamera);
               setScanError(hasCamera ? t('rooms.scanCameraDenied') : t('rooms.scanNoCamera'));
             })
             .catch(() => {
@@ -377,16 +475,27 @@ export function RoomListPage() {
       });
   };
 
-  // Helper: get ImageData from a File, with fallback for older browsers
-  const getImageDataFromFile = async (file: File): Promise<ImageData> => {
+  // Helper: load an image File into a drawable source with intrinsic size
+  const loadImageFile = async (
+    file: File,
+  ): Promise<{
+    source: CanvasImageSource;
+    width: number;
+    height: number;
+    dispose: () => void;
+  }> => {
     if (typeof createImageBitmap === 'function') {
-      const bitmap = await createImageBitmap(file);
-      const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(bitmap, 0, 0);
-      return ctx.getImageData(0, 0, canvas.width, canvas.height);
+      try {
+        const bitmap = await createImageBitmap(file);
+        return {
+          source: bitmap,
+          width: bitmap.width,
+          height: bitmap.height,
+          dispose: () => bitmap.close(),
+        };
+      } catch {
+        // Some browsers can't createImageBitmap certain formats — fall through
+      }
     }
 
     // Fallback for browsers without createImageBitmap
@@ -394,20 +503,37 @@ export function RoomListPage() {
       const reader = new FileReader();
       reader.onload = () => {
         const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(img, 0, 0);
-          resolve(ctx.getImageData(0, 0, canvas.width, canvas.height));
-        };
+        img.onload = () =>
+          resolve({
+            source: img,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            dispose: () => {},
+          });
         img.onerror = reject;
         img.src = reader.result as string;
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+  };
+
+  // Helper: rasterize a loaded image to ImageData, capped to maxDim pixels
+  const drawToImageData = (
+    source: CanvasImageSource,
+    width: number,
+    height: number,
+    maxDim: number,
+  ): ImageData => {
+    const scale = Math.min(1, maxDim / Math.max(width, height));
+    const w = Math.max(1, Math.round(width * scale));
+    const h = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(source, 0, 0, w, h);
+    return ctx.getImageData(0, 0, w, h);
   };
 
   // Scan from uploaded image
@@ -418,6 +544,11 @@ export function RoomListPage() {
   };
 
   const handleFileSelected = async () => {
+    const scanAttempt = scanAttemptRef.current + 1;
+    scanAttemptRef.current = scanAttempt;
+    const isCurrentScan = () =>
+      scanAttempt === scanAttemptRef.current && scanningRef.current;
+
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
       console.log('[QR Image] Step 2: No file selected');
@@ -438,10 +569,12 @@ export function RoomListPage() {
     scanProcessingRef.current = false;
     scanningRef.current = true;
 
+    let disposeImage: (() => void) | null = null;
     try {
       // Load jsQR (should be preloaded)
       console.log('[QR Image] Step 3: Loading jsQR...');
       const jsQRMod = await preloadJsQR();
+      if (!isCurrentScan()) return;
       if (!jsQRMod) {
         console.error('[QR Image] Step 3: jsQR not available');
         setScanError(t('rooms.scanNotSupported'));
@@ -449,21 +582,39 @@ export function RoomListPage() {
       }
       const jsQR = jsQRMod.default;
       console.log('[QR Image] Step 3: jsQR loaded');
+      if (!isCurrentScan()) return;
 
       // Convert file to ImageData
-      console.log('[QR Image] Step 4: Converting file to ImageData...');
-      const imageData = await getImageDataFromFile(file);
-      console.log('[QR Image] Step 4: ImageData obtained:', imageData.width, 'x', imageData.height);
+      console.log('[QR Image] Step 4: Loading image...');
+      const { source, width, height, dispose } = await loadImageFile(file);
+      disposeImage = dispose;
+      if (!isCurrentScan()) return;
+      console.log('[QR Image] Step 4: Image loaded:', width, 'x', height);
 
-      // Decode QR
+      // Decode QR — try multiple raster sizes. Large photos (e.g. 12MP camera
+      // shots) often fail at native resolution: downscaling averages away
+      // sensor noise and sharpens module edges. Screenshots decode best near
+      // native size. The Set dedupes when the image is already small.
       console.log('[QR Image] Step 5: Decoding QR...');
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      console.log('[QR Image] Step 5: QR decode result:', code ? 'FOUND' : 'NOT FOUND');
+      const nativeMax = Math.max(width, height);
+      const attempts = [...new Set([
+        Math.min(nativeMax, 1200),
+        Math.min(nativeMax, 2000),
+        Math.min(nativeMax, 3000),
+      ])];
+      let code: ReturnType<typeof jsQR> = null;
+      for (const maxDim of attempts) {
+        if (!isCurrentScan()) return;
+        const imageData = drawToImageData(source, width, height, maxDim);
+        code = jsQR(imageData.data, imageData.width, imageData.height);
+        console.log(`[QR Image] Step 5: decode at ${imageData.width}x${imageData.height}:`, code ? 'FOUND' : 'not found');
+        if (code) break;
+      }
 
       if (code) {
         // QR found — process result
         console.log('[QR Image] Step 6: Processing QR data:', code.data.substring(0, 30) + '...');
-        const handled = await processScanResult(code.data);
+        const handled = await processScanResult(code.data, scanAttempt);
         console.log('[QR Image] Step 6: processScanResult returned:', handled);
         if (handled) {
           return; // Processing or done
@@ -471,9 +622,11 @@ export function RoomListPage() {
       }
 
       // No QR found
+      if (!isCurrentScan()) return;
       console.log('[QR Image] Step 7: No QR found in image');
       setScanError(t('rooms.scanNoQR'));
     } catch (err) {
+      if (!isCurrentScan()) return;
       console.error('[QR Image] Error:', err);
       const message = err instanceof Error ? err.message : '';
       if (message.includes('timeout') || message.includes('aborted')) {
@@ -481,6 +634,8 @@ export function RoomListPage() {
       } else {
         setScanError(t('rooms.scanError') + ': ' + message);
       }
+    } finally {
+      disposeImage?.();
     }
   };
 
@@ -916,9 +1071,11 @@ export function RoomListPage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => {
+                    // Open the file picker synchronously — Safari/iOS block
+                    // programmatic input.click() once the user gesture has
+                    // expired (e.g. inside a setTimeout).
+                    fileInputRef.current?.click();
                     stopScanning();
-                    // Small delay to let overlay close before opening file picker
-                    setTimeout(() => handleImageScan(), 300);
                   }}
                 >
                   <svg
