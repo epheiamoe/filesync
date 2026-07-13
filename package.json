@@ -9,8 +9,8 @@
   },
   "scripts": {
     "dev": "pnpm --filter @filesync/backend dev",
-    "dev:frontend": "cd packages/frontend && npm run dev",
-    "build:frontend": "cd packages/frontend && npm run build",
+    "dev:frontend": "cd packages/frontend && pnpm run dev",
+    "build:frontend": "cd packages/frontend && pnpm run build",
     "deploy": "pnpm --filter @filesync/backend deploy",
     "test": "pnpm --filter @filesync/backend test",
     "lint": "pnpm -r lint"

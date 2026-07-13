@@ -14,9 +14,9 @@
 ### 快速开始
 
 ```bash
-# 1. 安装依赖
+# 1. 安装依赖（根目录会安装 backend + shared，frontend 需单独安装）
 pnpm install
-cd packages/frontend && npm install && cd ../..
+cd packages/frontend && pnpm install && cd ../..
 
 # 2. 创建 Cloudflare 资源
 cd packages/backend
@@ -37,7 +37,7 @@ npx wrangler deploy
 
 # 6. 部署前端
 cd ../frontend
-npm run build
+pnpm run build
 npx wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT_NAME>
 ```
 

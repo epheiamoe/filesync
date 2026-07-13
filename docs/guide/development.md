@@ -4,18 +4,19 @@
 
 - Node.js >= 18.0.0
 - pnpm 9.x (`corepack enable && corepack prepare pnpm@9.0.0 --activate`)
-- [wrangler](https://developers.cloudflare.com/workers/wrangler/) (`npm i -g wrangler`)
+- [wrangler](https://developers.cloudflare.com/workers/wrangler/) (`pnpm add -g wrangler`)
 - Cloudflare account with Workers Paid plan
 - R2, D1, KV enabled in Cloudflare Dashboard
 
 ## Setup
 
 ```bash
-# Install dependencies (root + workspace packages)
+# Install dependencies (root + workspace packages; frontend is not in workspace)
 pnpm install
 
-# Install frontend deps (not in pnpm workspace)
-cd packages/frontend && npm install && cd ../..
+# Install frontend deps separately
+# frontend is not listed in pnpm-workspace.yaml, so use cd instead of --filter
+cd packages/frontend && pnpm install && cd ../..
 
 # Copy and configure wrangler config
 cp packages/backend/wrangler.jsonc.template packages/backend/wrangler.jsonc
@@ -31,7 +32,7 @@ pnpm dev
 
 # Start frontend dev server (local, port 5173)
 pnpm dev:frontend
-# or: cd packages/frontend && npm run dev
+# or: cd packages/frontend && pnpm run dev
 
 # Both must run concurrently for full-stack dev
 ```
@@ -86,7 +87,7 @@ npx wrangler d1 execute <YOUR_D1_DATABASE_NAME> --file packages/backend/db/migra
 ```bash
 # Build frontend for production
 pnpm build:frontend
-# or: cd packages/frontend && npm run build
+# or: cd packages/frontend && pnpm run build
 ```
 
 ## Deploy
@@ -149,7 +150,7 @@ curl -i -H "Origin: https://evil.example.com" \
 
    ```bash
    cd packages/frontend
-   npm run build
+   pnpm run build
    npx wrangler pages deploy dist --project-name <YOUR_PAGES_PROJECT_NAME>
    ```
 
