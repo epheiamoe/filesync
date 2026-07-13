@@ -17,7 +17,7 @@ import type { AppContext, AppEnv } from './types';
 
 // ---- Auth ----
 import { handleLogin } from './auth/login';
-import { handleCreateCredential, handleListCredentials, handleRevokeCredential, handleCreateApiKey, handleRevokeApiKey } from './auth/credentials';
+import { handleCreateCredential, handleListCredentials, handleRevokeCredential, handleCreateApiKey, handleListApiKeys, handleRevokeApiKey } from './auth/credentials';
 import { validateSession, destroySession } from './auth/session';
 
 // ---- Rooms ----
@@ -180,6 +180,7 @@ app.post('/api/auth/credentials', handleCreateCredential);
 app.get('/api/auth/credentials', handleListCredentials);
 app.delete('/api/auth/credentials/:id', handleRevokeCredential);
 app.post('/api/auth/api-keys', handleCreateApiKey);
+app.get('/api/auth/api-keys', handleListApiKeys);
 app.delete('/api/auth/api-keys/:keyHash', handleRevokeApiKey);
 
 // ---- Room Routes ----

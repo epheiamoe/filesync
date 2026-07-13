@@ -1,6 +1,6 @@
 # filesync — Architecture & Current State
 
-> Last updated: 2026-06-23 after production deployment + Playwright e2e verification (commits `591751f`, `69727fa`)
+> Last updated: 2026-07-13 after admin API key management feature (label, list, revoke, copy). Previous state: 2026-06-23 (`591751f`, `69727fa`).
 
 ## Overview
 
@@ -123,6 +123,15 @@ WebSocket connections use a **two-step** approach:
 
 This isolates auth from the WebSocket upgrade handler.
 
+### 7. Admin Panel API Key Management
+API keys are now stored in the `credential_audit` table alongside temp credentials. Creating an API key requires a `label` (1–100 chars), which is persisted in `credential_audit.label`. The admin panel (`/admin`) provides a dedicated **API Key Management** section that:
+
+- Lists all API keys with label, prefix, active/revoked status, and creation time.
+- Creates a new key and shows the full key once with a copy button.
+- Revokes an existing key via `DELETE /api/auth/api-keys/:keyHash` after a confirmation dialog.
+
+The listing endpoint (`GET /api/auth/api-keys`) returns `key_hash` (SHA-256 of the original key) rather than the raw key. This is safe because SHA-256 is one-way and the key is only exposed during creation.
+
 ## Data Flow (Message Send)
 
 ```
@@ -225,7 +234,7 @@ Defined in `packages/backend/db/schema.sql`. Key tables:
 - `messages` — `id`, `room_id`, `encrypted_content`, `message_type`, `ttl_seconds`, `expires_at`, `recalled_at`
 - `files` — `id`, `room_id`, `r2_key`, `encrypted_filename`, `encrypted_meta`, `file_hash`, `visibility`, `expires_at`, `recalled_at`
 - `temp_credentials` — `code`, `expires_at`, `label`
-- `api_keys` — `key_hash`, `label`
+- `credential_audit` — lifecycle tracking for `temp_credential` and `api_key`; API key rows include `label`, `api_key_prefix`, `code_hash`, `created_by`, `revoked_at`
 - `audit_log` — operation audit trail (added by migration `0003_add_audit_log.sql`)
 
 ## Configuration

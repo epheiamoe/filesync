@@ -159,7 +159,57 @@ WebSocket 消息格式（`WsMessage` / `BroadcastEvent`）：
 撤销凭证。
 
 ### POST /api/auth/api-keys
-创建 API 密钥。
+创建 API 密钥（admin only）。现在必须提供一个 `label` 用于描述该密钥用途。
+
+**Body:** `{ "label": "CI deploy" }`（1–100 字符）
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "key": "32-char-hex",
+    "label": "CI deploy",
+    "created_at": "2026-07-13T00:00:00Z"
+  }
+}
+```
+> **注意：** 完整 `key` 仅在创建响应中返回一次，后续列表接口只返回前缀与哈希，无法反推原始密钥。
+
+### GET /api/auth/api-keys
+列出所有 API 密钥（admin only）。按创建时间倒序排列，最多返回 100 条。
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "api_keys": [
+      {
+        "id": "audit-row-id",
+        "label": "CI deploy",
+        "api_key_prefix": "a1b2c3d4",
+        "key_hash": "sha256-hex",
+        "created_at": "2026-07-13T00:00:00Z",
+        "expires_at": "2027-07-13T00:00:00Z",
+        "revoked_at": null
+      }
+    ]
+  }
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 审计行 ID |
+| `label` | string | 管理员创建时提供的标签 |
+| `api_key_prefix` | string | 原始密钥前 8 位，用于识别 |
+| `key_hash` | string | 原始密钥的 SHA-256 hex，用于撤销 |
+| `created_at` | string | 创建时间（ISO 8601） |
+| `expires_at` | string | 过期时间（当前固定为 1 年后） |
+| `revoked_at` | string \| null | 撤销时间；为 null 表示仍有效 |
 
 ### DELETE /api/auth/api-keys/:keyHash
 撤销 API 密钥。

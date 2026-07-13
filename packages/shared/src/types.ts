@@ -94,6 +94,22 @@ export interface CreateApiKeyRequest {
 
 export interface CreateApiKeyResponse {
   key: string;
+  label?: string;
+  created_at?: string;
+}
+
+export interface ApiKeyListItem {
+  id: string;
+  label: string;
+  api_key_prefix: string;
+  key_hash: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at?: string | null;
+}
+
+export interface ApiKeyListResponse {
+  api_keys: ApiKeyListItem[];
 }
 
 export interface AdminStats {

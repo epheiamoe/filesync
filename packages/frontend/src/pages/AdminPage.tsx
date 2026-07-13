@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
-import type { AdminStats } from '@shared/types';
+import type { AdminStats, ApiKeyListItem } from '@shared/types';
 
 export function AdminPage() {
   const navigate = useNavigate();
@@ -29,17 +29,24 @@ export function AdminPage() {
   const [pwMsg, setPwMsg] = useState('');
   const [pwOk, setPwOk] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [apiKeys, setApiKeys] = useState<ApiKeyListItem[]>([]);
+  const [apiKeyLabel, setApiKeyLabel] = useState('');
+  const [creatingApiKey, setCreatingApiKey] = useState(false);
+  const [newApiKey, setNewApiKey] = useState<{ key: string; label: string } | null>(null);
+  const [copying, setCopying] = useState(false);
   const addToast = useStore((s) => s.addToast);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [s, r] = await Promise.all([
+      const [s, r, keys] = await Promise.all([
         api.getAdminStats(),
         api.getAdminRooms(),
+        api.listApiKeys(),
       ]);
       setStats(s);
       setRooms(r);
+      setApiKeys(keys);
     } catch {
       // error handled by UI
     } finally {
@@ -60,6 +67,41 @@ export function AdminPage() {
       // ignore
     } finally {
       setCreatingCred(false);
+    }
+  };
+
+  const handleCreateApiKey = async () => {
+    if (!apiKeyLabel.trim()) return;
+    setCreatingApiKey(true);
+    try {
+      const result = await api.createApiKey(apiKeyLabel.trim());
+      setNewApiKey({ key: result.key, label: result.label ?? apiKeyLabel.trim() });
+      setApiKeyLabel('');
+      await loadData();
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    } finally {
+      setCreatingApiKey(false);
+    }
+  };
+
+  const handleCopyApiKey = async (key: string) => {
+    try {
+      await navigator.clipboard.writeText(key);
+      setCopying(true);
+      setTimeout(() => setCopying(false), 1500);
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    }
+  };
+
+  const handleRevokeApiKey = async (keyHash: string) => {
+    if (!window.confirm(t('admin.apiKeyRevokeConfirm'))) return;
+    try {
+      await api.revokeApiKey(keyHash);
+      await loadData();
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
     }
   };
 
@@ -212,6 +254,162 @@ export function AdminPage() {
                   </motion.code>
                 )}
               </div>
+            </section>
+
+            {/* API Key Management */}
+            <section>
+              <h2 className="text-title-md font-display text-ink mb-4">{t('admin.apiKeys')}</h2>
+              <Card padding="md" className="max-w-2xl">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                    <div className="flex-1 w-full">
+                      <Input
+                        value={apiKeyLabel}
+                        onChange={(e) => setApiKeyLabel(e.target.value)}
+                        placeholder={t('admin.apiKeyLabelPlaceholder')}
+                        aria-label={t('admin.apiKeyLabel')}
+                      />
+                    </div>
+                    <Button
+                      variant="primary"
+                      loading={creatingApiKey}
+                      onClick={handleCreateApiKey}
+                      disabled={!apiKeyLabel.trim() || creatingApiKey}
+                      icon={
+                        <svg
+                          className="w-4 h-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M15.236 11.395a4 4 0 1 0-6.472 0A4 4 0 0 0 5 15c0 1.657 1.343 3 3 3h8c1.657 0 3-1.343 3-3a4 4 0 0 0-3.764-3.605Z" />
+                          <path d="M12 22v-5" />
+                          <path d="M9 17h6" />
+                        </svg>
+                      }
+                    >
+                      {t('admin.createApiKey')}
+                    </Button>
+                  </div>
+
+                  {newApiKey && (
+                    <div className="p-4 bg-success/10 border border-success/20 rounded-md">
+                      <p className="text-sm text-success mb-2">{t('admin.apiKeyCreated')}</p>
+                      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                        <code className="flex-1 px-3 py-2 bg-canvas rounded-md font-mono text-ink break-all text-sm">
+                          {newApiKey.key}
+                        </code>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCopyApiKey(newApiKey.key)}
+                          icon={
+                            copying ? (
+                              <svg
+                                className="w-4 h-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            ) : (
+                              <svg
+                                className="w-4 h-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            )
+                          }
+                          aria-label={copying ? t('admin.apiKeyCopied') : t('admin.apiKeyCopy')}
+                        >
+                          {copying ? t('admin.apiKeyCopied') : t('common.copy')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    {apiKeys.length === 0 ? (
+                      <p className="text-sm text-muted">{t('admin.apiKeyEmpty')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {apiKeys.map((key) => {
+                          const isRevoked = Boolean(key.revoked_at);
+                          return (
+                            <Card key={key.id} padding="sm" variant="flat">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                                  <span className="font-medium text-ink text-sm">
+                                    {key.label || '—'}
+                                  </span>
+                                  <code className="text-xs text-muted font-mono">
+                                    {t('admin.apiKeyPrefix')}: {key.api_key_prefix}
+                                  </code>
+                                  <Badge variant={isRevoked ? 'error' : 'success'}>
+                                    {isRevoked ? t('admin.apiKeyRevoked') : t('admin.apiKeyActive')}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-muted">
+                                    {new Date(key.created_at).toLocaleString()}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={isRevoked}
+                                    onClick={() => handleRevokeApiKey(key.key_hash)}
+                                    className={`
+                                      inline-flex items-center justify-center p-2 rounded-md
+                                      transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-primary
+                                      ${isRevoked
+                                        ? 'text-muted cursor-not-allowed'
+                                        : 'text-error hover:bg-error/10'
+                                      }
+                                    `.trim().replace(/\s+/g, ' ')}
+                                    aria-label={t('admin.apiKeyRevoke')}
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden="true"
+                                    >
+                                      <polyline points="3 6 5 6 21 6" />
+                                      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                      <line x1="10" y1="11" x2="10" y2="17" />
+                                      <line x1="14" y1="11" x2="14" y2="17" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
             </section>
 
             {/* Change Password */}

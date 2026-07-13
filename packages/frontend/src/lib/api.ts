@@ -19,6 +19,7 @@ import type {
   CreateTempCredentialResponse,
   CreateApiKeyRequest,
   CreateApiKeyResponse,
+  ApiKeyListItem,
   AdminStats,
   AdminRoomRow,
   DestroyRoomResponse,
@@ -192,6 +193,11 @@ export const api = {
     const body: CreateApiKeyRequest = { label };
     const res = await request<ApiResponse<CreateApiKeyResponse>>('POST', '/auth/api-keys', body);
     return res.data!;
+  },
+
+  async listApiKeys(): Promise<ApiKeyListItem[]> {
+    const res = await request<ApiResponse<{ api_keys: ApiKeyListItem[] }>>('GET', '/auth/api-keys');
+    return res.data!.api_keys;
   },
 
   async revokeApiKey(keyHash: string): Promise<void> {

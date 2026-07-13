@@ -50,6 +50,40 @@ function auditActorId(session: SessionData): string {
   return session.admin_id ?? 'admin';
 }
 
+// ---- GET /api/auth/api-keys ----
+export async function handleListApiKeys(
+  c: Context<AppContext>
+): Promise<Response> {
+  const sessionOrError = requireAdmin(c);
+  if (sessionOrError instanceof Response) return sessionOrError;
+
+  const result = await c.env.DB.prepare(
+    `SELECT id, type, label, api_key_prefix, code_hash, created_by, used_at, expires_at, revoked_at, created_at
+     FROM credential_audit
+     WHERE type = 'api_key'
+     ORDER BY created_at DESC
+     LIMIT 100`
+  ).all();
+
+  const apiKeys = (result.results || []).map((row: Record<string, unknown>) => ({
+    id: row.id as string,
+    label: (row.label as string) ?? '',
+    api_key_prefix: (row.api_key_prefix as string) ?? '',
+    key_hash: (row.code_hash as string) ?? '',
+    created_at: row.created_at as string,
+    expires_at: row.expires_at as string,
+    revoked_at: row.revoked_at ? (row.revoked_at as string) : null,
+  }));
+
+  return c.json(
+    {
+      success: true,
+      data: { api_keys: apiKeys },
+    },
+    200
+  );
+}
+
 // ---- POST /api/auth/credentials ----
 const createCredentialSchema = z.object({
   label: z.string().optional(),
@@ -283,9 +317,9 @@ export async function handleCreateApiKey(
   const farFutureExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   try {
     await c.env.DB.prepare(
-      `INSERT INTO credential_audit (id, type, api_key_prefix, created_by, expires_at, created_at)
-       VALUES (?, 'api_key', ?, ?, ?, ?)`
-    ).bind(auditId, apiKeyPrefix, 'admin', farFutureExpiry, now).run();
+      `INSERT INTO credential_audit (id, type, label, api_key_prefix, code_hash, created_by, expires_at, created_at)
+       VALUES (?, 'api_key', ?, ?, ?, ?, ?, ?)`
+    ).bind(auditId, parsed.data.label, apiKeyPrefix, keyHash, 'admin', farFutureExpiry, now).run();
     auditRowId = auditId;
   } catch (err) {
     // [Debt: structured logging]
@@ -310,6 +344,7 @@ export async function handleCreateApiKey(
       success: true,
       data: {
         key: apiKey,
+        label: parsed.data.label,
         created_at: now,
       },
     },

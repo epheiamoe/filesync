@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS usage_stats (
 CREATE TABLE IF NOT EXISTS credential_audit (
   id              TEXT PRIMARY KEY,                        -- UUID v4
   type            TEXT NOT NULL CHECK(type IN ('temp_credential','api_key')),
-  code_hash       TEXT,                                    -- SHA-256(temp_code)，仅 temp 类型
+  label           TEXT,                                    -- API key 标签（管理员可读），temp 类型可为空
+  code_hash       TEXT,                                    -- SHA-256(temp_code 或 api_key)；api_key 类型作为撤销回退路径使用
   api_key_prefix  TEXT,                                    -- API key 前 8 字符，仅 api_key 类型（用于列表展示）
   created_by      TEXT,                                    -- 创建者 admin username
   used_at         TEXT,                                    -- 使用时间 (temp cred one-time use)
@@ -132,8 +133,11 @@ CREATE INDEX IF NOT EXISTS idx_cred_expires ON credential_audit(expires_at);
 
 -- ============================================================
 -- Migration Scripts (idempotent — safe to run multiple times)
--- Run these via `npx wrangler d1 execute filesync-db --file=db/schema.sql`
+-- Run these via `npx wrangler d1 execute filesync-db-v2 --file=db/schema.sql`
 -- ============================================================
+
+-- 2026-07-13: Add label column to credential_audit for API key management
+-- ALTER TABLE credential_audit ADD COLUMN label TEXT;
 
 -- Feature #12: Room activity tracking for auto-destroy
 -- ALTER TABLE rooms ADD COLUMN last_active_at TEXT;

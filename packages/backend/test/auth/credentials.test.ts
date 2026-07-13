@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import type { Context } from 'hono';
 import {
   handleCreateApiKey,
+  handleListApiKeys,
   handleRevokeApiKey,
 } from '../../src/auth/credentials';
 import { sha256 } from '../../src/crypto/hash';
@@ -23,56 +24,66 @@ class MockD1 implements Pick<D1Database, 'prepare'> {
     return this.runs;
   }
 
-  prepare(sql: string): {
-    bind: (...values: unknown[]) => {
-      first: <T>() => Promise<T | null>;
-      all: <T>() => Promise<{ results?: T[] }>;
-      run: () => Promise<{ meta?: { changes: number } }>;
-    };
-  } {
+  private createStatement(normalizedSql: string, bindings: unknown[]) {
     return {
-      bind: (...values: unknown[]) => {
-        const normalizedSql = sql.trim();
-        return {
-          first: async <T>() => {
-            if (normalizedSql.includes('FROM credential_audit WHERE id = ?')) {
-              return (this.rows.find((r) => r.id === values[0]) ?? null) as T | null;
-            }
-            if (normalizedSql.includes('WHERE type = \'api_key\' AND code_hash = ?')) {
-              return (this.rows.find((r) => r.code_hash === values[1] && !r.revoked_at) ?? null) as T | null;
-            }
-            return null as T | null;
-          },
-          all: async <T>() => ({ results: this.rows as T[] }),
-          run: async () => {
-            this.runs.push({ sql: normalizedSql, bindings: values });
-            let changes = 0;
-            if (normalizedSql.includes('UPDATE credential_audit SET revoked_at = ?')) {
-              if (normalizedSql.includes('WHERE id = ?')) {
-                const id = values[1];
-                for (const row of this.rows) {
-                  if (row.id === id && row.type === 'api_key' && !row.revoked_at) {
-                    row.revoked_at = values[0];
-                    changes++;
-                    break;
-                  }
-                }
-              } else if (normalizedSql.includes('code_hash = ?')) {
-                const codeHash = values[1];
-                for (const row of this.rows) {
-                  if (row.code_hash === codeHash && row.type === 'api_key' && !row.revoked_at) {
-                    row.revoked_at = values[0];
-                    changes++;
-                    break;
-                  }
-                }
+      first: async <T>() => {
+        if (normalizedSql.includes('FROM credential_audit WHERE id = ?')) {
+          return (this.rows.find((r) => r.id === bindings[0]) ?? null) as T | null;
+        }
+        if (normalizedSql.includes("WHERE type = 'api_key' AND code_hash = ?")) {
+          return (this.rows.find((r) => r.code_hash === bindings[1] && !r.revoked_at) ?? null) as T | null;
+        }
+        return null as T | null;
+      },
+      all: async <T>() => {
+        let filtered = this.rows;
+        if (normalizedSql.includes("WHERE type = 'api_key'")) {
+          filtered = filtered.filter((r) => r.type === 'api_key');
+        } else if (normalizedSql.includes("WHERE type = 'temp_credential'")) {
+          filtered = filtered.filter((r) => r.type === 'temp_credential');
+        }
+        return { results: filtered as T[] };
+      },
+      run: async () => {
+        this.runs.push({ sql: normalizedSql, bindings });
+        let changes = 0;
+        if (normalizedSql.includes('UPDATE credential_audit SET revoked_at = ?')) {
+          if (normalizedSql.includes('WHERE id = ?')) {
+            const id = bindings[1];
+            for (const row of this.rows) {
+              if (row.id === id && row.type === 'api_key' && !row.revoked_at) {
+                row.revoked_at = bindings[0];
+                changes++;
+                break;
               }
             }
-            return { meta: { changes } };
-          },
-        };
+          } else if (normalizedSql.includes('code_hash = ?')) {
+            const codeHash = bindings[1];
+            for (const row of this.rows) {
+              if (row.code_hash === codeHash && row.type === 'api_key' && !row.revoked_at) {
+                row.revoked_at = bindings[0];
+                changes++;
+                break;
+              }
+            }
+          }
+        }
+        return { meta: { changes } };
+      },
+      bind: (...newBindings: unknown[]) => {
+        return this.createStatement(normalizedSql, newBindings);
       },
     };
+  }
+
+  prepare(sql: string): {
+    bind: (...values: unknown[]) => ReturnType<typeof this.createStatement>;
+    first: <T>() => Promise<T | null>;
+    all: <T>() => Promise<{ results?: T[] }>;
+    run: () => Promise<{ meta?: { changes: number } }>;
+  } {
+    const normalizedSql = sql.trim();
+    return this.createStatement(normalizedSql, []);
   }
 }
 
@@ -235,6 +246,139 @@ describe('handleRevokeApiKey', () => {
   });
 });
 
+describe('handleListApiKeys', () => {
+  it('returns API keys for admin', async () => {
+    const db = new MockD1();
+    const kv = new MockKV();
+    const env = makeEnv(db, kv);
+
+    const key = 'a'.repeat(32);
+    const hash = await sha256(key);
+
+    db.setApiKeyRows([
+      {
+        id: 'audit-1',
+        type: 'api_key',
+        label: 'Test Key',
+        api_key_prefix: key.slice(0, 8),
+        code_hash: hash,
+        created_by: 'admin',
+        used_at: null,
+        expires_at: '2027-07-13T00:00:00Z',
+        revoked_at: null,
+        created_at: '2026-07-13T00:00:00Z',
+      },
+    ]);
+
+    const { c, response } = createMockContext(env, {}, {}, { 'cf-connecting-ip': '1.2.3.4' });
+    await handleListApiKeys(c);
+
+    expect(response.status).toBe(200);
+    const data = (response.body as any).data;
+    expect(data.api_keys).toHaveLength(1);
+    expect(data.api_keys[0].id).toBe('audit-1');
+    expect(data.api_keys[0].label).toBe('Test Key');
+    expect(data.api_keys[0].api_key_prefix).toBe(key.slice(0, 8));
+    expect(data.api_keys[0].key_hash).toBe(hash);
+    expect(data.api_keys[0].revoked_at).toBeNull();
+  });
+
+  it('rejects non-admin with 403', async () => {
+    const db = new MockD1();
+    const kv = new MockKV();
+    const env = makeEnv(db, kv);
+
+    const c = {
+      env,
+      get: (key: 'session') =>
+        key === 'session'
+          ? { account_type: 'api_key', scope: 'create_rooms', admin_id: undefined }
+          : undefined,
+      req: {
+        json: async () => ({}),
+        header: () => undefined,
+        param: () => undefined,
+        query: () => ({}),
+      },
+      json: (jsonBody: unknown, status?: number) => new Response(JSON.stringify(jsonBody), { status: status ?? 200 }),
+      header: () => undefined,
+    } as unknown as Context<AppContext>;
+
+    const res = await handleListApiKeys(c);
+    expect(res.status).toBe(403);
+  });
+
+  it('does not include temp_credential records', async () => {
+    const db = new MockD1();
+    const kv = new MockKV();
+    const env = makeEnv(db, kv);
+
+    db.setApiKeyRows([
+      {
+        id: 'audit-api',
+        type: 'api_key',
+        label: 'API Key',
+        api_key_prefix: 'aaaaaaaa',
+        code_hash: 'hash1',
+        created_by: 'admin',
+        used_at: null,
+        expires_at: '2027-07-13T00:00:00Z',
+        revoked_at: null,
+        created_at: '2026-07-13T00:00:00Z',
+      },
+      {
+        id: 'audit-temp',
+        type: 'temp_credential',
+        label: null,
+        api_key_prefix: null,
+        code_hash: 'hash2',
+        created_by: 'admin',
+        used_at: null,
+        expires_at: '2027-07-13T00:00:00Z',
+        revoked_at: null,
+        created_at: '2026-07-13T00:00:00Z',
+      },
+    ]);
+
+    const { c, response } = createMockContext(env, {}, {}, { 'cf-connecting-ip': '1.2.3.4' });
+    await handleListApiKeys(c);
+
+    const data = (response.body as any).data;
+    expect(data.api_keys).toHaveLength(1);
+    expect(data.api_keys[0].id).toBe('audit-api');
+  });
+
+  it('returns the label stored in D1', async () => {
+    const db = new MockD1();
+    const kv = new MockKV();
+    const env = makeEnv(db, kv);
+
+    const key = 'b'.repeat(32);
+    const hash = await sha256(key);
+
+    db.setApiKeyRows([
+      {
+        id: 'audit-labeled',
+        type: 'api_key',
+        label: 'CI deploy',
+        api_key_prefix: key.slice(0, 8),
+        code_hash: hash,
+        created_by: 'admin',
+        used_at: null,
+        expires_at: '2027-07-13T00:00:00Z',
+        revoked_at: null,
+        created_at: '2026-07-13T00:00:00Z',
+      },
+    ]);
+
+    const { c, response } = createMockContext(env, {}, {}, { 'cf-connecting-ip': '1.2.3.4' });
+    await handleListApiKeys(c);
+
+    const data = (response.body as any).data;
+    expect(data.api_keys[0].label).toBe('CI deploy');
+  });
+});
+
 describe('handleCreateApiKey', () => {
   it('stores audit_id in KV key data for precise revocation', async () => {
     const db = new MockD1();
@@ -255,5 +399,30 @@ describe('handleCreateApiKey', () => {
     const stored = kv.getData(`apikey:${hash}`);
     expect(stored).not.toBeNull();
     expect(stored?.audit_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('persists label and code_hash in D1 audit record', async () => {
+    const db = new MockD1();
+    const kv = new MockKV();
+    const env = makeEnv(db, kv);
+
+    const { c, response } = createMockContext(
+      env,
+      { label: 'Test Key' },
+      {},
+      { 'cf-connecting-ip': '1.2.3.4' }
+    );
+    await handleCreateApiKey(c);
+
+    expect(response.status).toBe(201);
+    const key = ((response.body as any).data.key as string);
+    const hash = await sha256(key);
+
+    const insertRuns = db.getRuns().filter((r) => r.sql.includes('INSERT INTO credential_audit'));
+    expect(insertRuns).toHaveLength(1);
+    const insert = insertRuns[0];
+    expect(insert.bindings).toContain('Test Key');
+    expect(insert.bindings).toContain(hash);
+    expect(insert.bindings).toContain(key.slice(0, 8));
   });
 });
