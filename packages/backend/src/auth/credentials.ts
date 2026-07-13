@@ -364,14 +364,13 @@ export async function handleRevokeApiKey(
     return c.json({ success: false, error: 'API key hash required', code: 'VALIDATION_ERROR' }, 400);
   }
 
-  const now = new Date().toISOString();
-  let affectedRows = 0;
+  let deletedAuditId: string | null = null;
 
   // Delete from KV
   const raw = await c.env.KV.get(`apikey:${keyHashParam}`);
   await c.env.KV.delete(`apikey:${keyHashParam}`);
 
-  // Find and mark as revoked in D1
+  // Find and delete the audit record in D1
   try {
     let keyData: { audit_id?: string } | null = null;
     if (raw) {
@@ -383,36 +382,33 @@ export async function handleRevokeApiKey(
     }
 
     if (keyData?.audit_id) {
-      const result = await c.env.DB.prepare(
-        `UPDATE credential_audit SET revoked_at = ?
-         WHERE id = ? AND type = 'api_key'`
-      ).bind(now, keyData.audit_id).run();
-      affectedRows = (result as any).meta?.changes ?? 0;
+      await c.env.DB.prepare(
+        `DELETE FROM credential_audit WHERE id = ? AND type = 'api_key'`
+      ).bind(keyData.audit_id).run();
+      deletedAuditId = keyData.audit_id;
     } else {
       // Fallback for legacy KV entries created before audit_id was stored:
       // match by code_hash, which for api_key records stores the key SHA-256 hash.
-      const result = await c.env.DB.prepare(
-        `UPDATE credential_audit SET revoked_at = ?
-         WHERE type = 'api_key' AND code_hash = ? AND revoked_at IS NULL`
-      ).bind(now, keyHashParam).run();
-      affectedRows = (result as any).meta?.changes ?? 0;
+      await c.env.DB.prepare(
+        `DELETE FROM credential_audit WHERE type = 'api_key' AND code_hash = ?`
+      ).bind(keyHashParam).run();
     }
   } catch (err) {
     // [Debt: structured logging]
-    console.error('Failed to update API key revocation in audit:', err);
+    console.error('Failed to delete API key audit record:', err);
   }
 
   const ip = getClientIP(c);
   const userAgent = c.req.header('User-Agent') ?? undefined;
   await logAudit(c.env, {
-    action: 'credential_revoked',
+    action: 'credential_deleted',
     actor_type: 'admin',
     actor_id: auditActorId(sessionOrError),
     target_type: 'api_key',
     target_id: keyHashParam,
     ip,
     user_agent: userAgent,
-    details: { revoked_at: now, audit_rows_affected: affectedRows },
+    details: { audit_id: deletedAuditId },
   });
 
   return c.json({ success: true }, 200);

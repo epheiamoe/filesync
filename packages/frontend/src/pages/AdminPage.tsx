@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Spinner } from '@/components/ui/Spinner';
 import type { AdminStats, ApiKeyListItem } from '@shared/types';
 
@@ -34,6 +35,10 @@ export function AdminPage() {
   const [creatingApiKey, setCreatingApiKey] = useState(false);
   const [newApiKey, setNewApiKey] = useState<{ key: string; label: string } | null>(null);
   const [copying, setCopying] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [keyToDelete, setKeyToDelete] = useState<ApiKeyListItem | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [prefixCopied, setPrefixCopied] = useState(false);
   const addToast = useStore((s) => s.addToast);
 
   const loadData = useCallback(async () => {
@@ -95,15 +100,40 @@ export function AdminPage() {
     }
   };
 
-  const handleRevokeApiKey = async (keyHash: string) => {
-    if (!window.confirm(t('admin.apiKeyRevokeConfirm'))) return;
+  const openDeleteDialog = useCallback((key: ApiKeyListItem) => {
+    setKeyToDelete(key);
+    setDeleteConfirmInput('');
+    setPrefixCopied(false);
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const closeDeleteDialog = useCallback(() => {
+    setDeleteDialogOpen(false);
+  }, []);
+
+  const handleCopyPrefix = useCallback(async (prefix: string) => {
     try {
-      await api.revokeApiKey(keyHash);
-      await loadData();
+      await navigator.clipboard.writeText(prefix);
+      setPrefixCopied(true);
+      setTimeout(() => setPrefixCopied(false), 1500);
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     }
-  };
+  }, [addToast]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!keyToDelete || deleteConfirmInput !== keyToDelete.api_key_prefix) return;
+    setDeleteDialogOpen(false);
+    try {
+      await api.deleteApiKey(keyToDelete.key_hash);
+      await loadData();
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    } finally {
+      setKeyToDelete(null);
+      setDeleteConfirmInput('');
+    }
+  }, [keyToDelete, deleteConfirmInput, loadData, addToast]);
 
   const handleDestroyRoom = async (roomCode: string) => {
     if (!window.confirm(t('admin.destroyConfirm'))) return;
@@ -351,7 +381,6 @@ export function AdminPage() {
                     ) : (
                       <div className="flex flex-col gap-2">
                         {apiKeys.map((key) => {
-                          const isRevoked = Boolean(key.revoked_at);
                           return (
                             <Card key={key.id} padding="sm" variant="flat">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -362,8 +391,8 @@ export function AdminPage() {
                                   <code className="text-xs text-muted font-mono">
                                     {t('admin.apiKeyPrefix')}: {key.api_key_prefix}
                                   </code>
-                                  <Badge variant={isRevoked ? 'error' : 'success'}>
-                                    {isRevoked ? t('admin.apiKeyRevoked') : t('admin.apiKeyActive')}
+                                  <Badge variant="success">
+                                    {t('admin.apiKeyActive')}
                                   </Badge>
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -372,17 +401,13 @@ export function AdminPage() {
                                   </span>
                                   <button
                                     type="button"
-                                    disabled={isRevoked}
-                                    onClick={() => handleRevokeApiKey(key.key_hash)}
+                                    onClick={() => openDeleteDialog(key)}
                                     className={`
                                       inline-flex items-center justify-center p-2 rounded-md
                                       transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-primary
-                                      ${isRevoked
-                                        ? 'text-muted cursor-not-allowed'
-                                        : 'text-error hover:bg-error/10'
-                                      }
+                                      text-error hover:bg-error/10
                                     `.trim().replace(/\s+/g, ' ')}
-                                    aria-label={t('admin.apiKeyRevoke')}
+                                    aria-label={t('admin.apiKeyDelete')}
                                   >
                                     <svg
                                       className="w-4 h-4"
@@ -513,6 +538,74 @@ export function AdminPage() {
           </div>
         )}
       </main>
+
+      {/* Delete API key confirmation dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={closeDeleteDialog}
+        onConfirm={handleConfirmDelete}
+        title={t('admin.apiKeyDeleteTitle')}
+        description={
+          keyToDelete ? (
+            <div className="flex flex-col gap-3"
+            >
+              <p>{t('admin.apiKeyDeleteDescription', { label: keyToDelete.label || '—', prefix: keyToDelete.api_key_prefix })}</p>
+              <div className="flex items-center gap-2">
+                <code className="px-2 py-1 bg-canvas-card rounded font-mono text-sm text-ink">
+                  {keyToDelete.api_key_prefix}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => handleCopyPrefix(keyToDelete.api_key_prefix)}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-canvas-card text-body hover:bg-primary/10 hover:text-primary transition-colors"
+                  aria-label={prefixCopied ? t('admin.apiKeyDeletePrefixCopied') : t('admin.apiKeyDeletePrefixCopy')}
+                >
+                  <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    {prefixCopied ? (
+                      <polyline points="20 6 9 17 4 12" />
+                    ) : (
+                      <>
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </>
+                    )}
+                  </svg>
+                  {prefixCopied ? t('admin.apiKeyDeletePrefixCopied') : t('admin.apiKeyDeletePrefixCopy')}
+                </button>
+              </div>
+              <p>{t('admin.apiKeyDeleteConfirm')}</p>
+            </div>
+          ) : null
+        }
+        confirmText={t('common.delete')}
+        cancelText={t('common.cancel')}
+        danger
+        confirmDisabled={!keyToDelete || deleteConfirmInput !== keyToDelete.api_key_prefix}
+      >
+        {keyToDelete && (
+          <Input
+            value={deleteConfirmInput}
+            onChange={(e) => setDeleteConfirmInput(e.target.value)}
+            placeholder={t('admin.apiKeyDeletePrefixPlaceholder')}
+            aria-label={t('admin.apiKeyDeletePrefixHint')}
+            error={
+              deleteConfirmInput.length > 0 && deleteConfirmInput !== keyToDelete.api_key_prefix
+                ? t('admin.apiKeyDeletePrefixMismatch')
+                : undefined
+            }
+            autoFocus
+          />
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

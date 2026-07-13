@@ -200,7 +200,7 @@ export const api = {
     return res.data!.api_keys;
   },
 
-  async revokeApiKey(keyHash: string): Promise<void> {
+  async deleteApiKey(keyHash: string): Promise<void> {
     await request<ApiResponse>('DELETE', `/auth/api-keys/${keyHash}`);
   },
 

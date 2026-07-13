@@ -47,7 +47,23 @@ class MockD1 implements Pick<D1Database, 'prepare'> {
       run: async () => {
         this.runs.push({ sql: normalizedSql, bindings });
         let changes = 0;
-        if (normalizedSql.includes('UPDATE credential_audit SET revoked_at = ?')) {
+        if (normalizedSql.includes('DELETE FROM credential_audit')) {
+          if (normalizedSql.includes('WHERE id = ?')) {
+            const id = bindings[0];
+            const idx = this.rows.findIndex((r) => r.id === id && r.type === 'api_key');
+            if (idx >= 0) {
+              this.rows.splice(idx, 1);
+              changes++;
+            }
+          } else if (normalizedSql.includes('code_hash = ?')) {
+            const codeHash = bindings[0];
+            const idx = this.rows.findIndex((r) => r.code_hash === codeHash && r.type === 'api_key');
+            if (idx >= 0) {
+              this.rows.splice(idx, 1);
+              changes++;
+            }
+          }
+        } else if (normalizedSql.includes('UPDATE credential_audit SET revoked_at = ?')) {
           if (normalizedSql.includes('WHERE id = ?')) {
             const id = bindings[1];
             for (const row of this.rows) {
@@ -168,7 +184,7 @@ function createMockContext(
 }
 
 describe('handleRevokeApiKey', () => {
-  it('revokes only the target API key audit record when multiple keys exist', async () => {
+  it('deletes only the target API key audit record when multiple keys exist', async () => {
     const db = new MockD1();
     const kv = new MockKV();
     const env = makeEnv(db, kv);
@@ -193,28 +209,25 @@ describe('handleRevokeApiKey', () => {
       JSON.stringify({ scope: 'create_rooms join_room', created_by: 'admin', created_at: new Date().toISOString(), label: 'Key 2', audit_id: 'audit-2' })
     );
 
-    // Revoke the first key
+    // Delete the first key
     const { c, response } = createMockContext(env, {}, { keyHash: hash1 }, { 'cf-connecting-ip': '1.2.3.4' });
     await handleRevokeApiKey(c);
 
     expect(response.status).toBe(200);
 
     const rows = (db as unknown as { rows: Record<string, unknown>[] }).rows;
-    const revokedIds = rows.filter((r) => r.revoked_at).map((r) => r.id);
-    expect(revokedIds).toEqual(['audit-1']);
-
-    const unrevokedIds = rows.filter((r) => !r.revoked_at).map((r) => r.id);
-    expect(unrevokedIds).toEqual(['audit-2']);
+    const remainingIds = rows.map((r) => r.id);
+    expect(remainingIds).toEqual(['audit-2']);
 
     expect(kv.has(`apikey:${hash1}`)).toBe(false);
     expect(kv.has(`apikey:${hash2}`)).toBe(true);
 
-    // Verify the D1 UPDATE was scoped by id, not by LIMIT 1 / ORDER BY
-    const revokeRuns = db.getRuns().filter((r) =>
-      r.sql.includes('UPDATE credential_audit SET revoked_at = ?')
+    // Verify the D1 DELETE was scoped by id
+    const deleteRuns = db.getRuns().filter((r) =>
+      r.sql.includes('DELETE FROM credential_audit')
     );
-    expect(revokeRuns.length).toBeGreaterThan(0);
-    const targetRun = revokeRuns[0];
+    expect(deleteRuns.length).toBeGreaterThan(0);
+    const targetRun = deleteRuns[0];
     expect(targetRun.sql).toContain('WHERE id = ?');
   });
 
@@ -242,7 +255,7 @@ describe('handleRevokeApiKey', () => {
     expect(response.status).toBe(200);
 
     const rows = (db as any).rows as Record<string, unknown>[];
-    expect(rows[0].revoked_at).not.toBeNull();
+    expect(rows).toHaveLength(0);
   });
 });
 

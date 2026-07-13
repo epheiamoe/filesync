@@ -206,13 +206,15 @@ WebSocket 消息格式（`WsMessage` / `BroadcastEvent`）：
 | `id` | string | 审计行 ID |
 | `label` | string | 管理员创建时提供的标签 |
 | `api_key_prefix` | string | 原始密钥前 8 位，用于识别 |
-| `key_hash` | string | 原始密钥的 SHA-256 hex，用于撤销 |
+| `key_hash` | string | 原始密钥的 SHA-256 hex，用于删除 |
 | `created_at` | string | 创建时间（ISO 8601） |
 | `expires_at` | string | 过期时间（当前固定为 1 年后） |
-| `revoked_at` | string \| null | 撤销时间；为 null 表示仍有效 |
+| `revoked_at` | string \| null | 撤销时间；仅旧数据保留，新数据删除后不再存在 |
 
 ### DELETE /api/auth/api-keys/:keyHash
-撤销 API 密钥。
+删除 API 密钥（硬删除）。会同时删除 KV 中的 `apikey:{keyHash}` 和 D1 中的对应审计记录，并写入 `credential_deleted` 审计日志。
+
+> 删除后该密钥立即失效，且无法恢复。
 
 ### PUT /api/admin/password
 修改管理员密码。
