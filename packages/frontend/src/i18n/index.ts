@@ -94,6 +94,7 @@ const translations: Translations = {
   'rooms.fullQRUrl': { 'zh-CN': '完整登录 URL', 'en-US': 'Full login URL' },
   'rooms.scanQR': { 'zh-CN': '扫描 QR', 'en-US': 'Scan QR' },
   'rooms.scanCameraDenied': { 'zh-CN': '无法访问摄像头。请授予摄像头权限或使用文件选择器。', 'en-US': 'Cannot access camera. Please grant permission or use file picker.' },
+  'rooms.scanCameraBusy': { 'zh-CN': '摄像头正被其他应用占用，请关闭后重试。', 'en-US': 'Camera is in use by another app. Close it and try again.' },
   'rooms.scanNoCamera': { 'zh-CN': '未检测到摄像头设备。请使用"上传图片识别"功能。', 'en-US': 'No camera detected. Please use "Upload Image" instead.' },
   'rooms.scanCameraBlocked': { 'zh-CN': '摄像头权限已被浏览器屏蔽。请在浏览器设置中允许此站点访问摄像头，或使用"上传图片识别"。', 'en-US': 'Camera access is blocked in browser settings. Please allow camera for this site, or use "Upload Image".' },
   'rooms.scanWithCamera': { 'zh-CN': '摄像头扫描', 'en-US': 'Scan with Camera' },

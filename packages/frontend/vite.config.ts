@@ -40,6 +40,9 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+          // Handles notificationclick for notifications shown via
+          // ServiceWorkerRegistration.showNotification (see useRoomNotifications).
+          importScripts: ['sw-notification-click.js'],
           runtimeCaching: [
             {
               urlPattern: /^\/api\/.*/,

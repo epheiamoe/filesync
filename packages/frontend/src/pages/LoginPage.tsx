@@ -6,55 +6,18 @@
  * Error states with shake animation.
  */
 
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { t } from '@/i18n';
 import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
+import { parseLoginHash } from '@/lib/url';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { TabBar } from '@/components/ui/TabBar';
 import { Spinner } from '@/components/ui/Spinner';
-
-/**
- * Parse the URL hash fragment to extract share string and optional credential.
- *
- * URL format: /login#<shareString>[-<6-char-credential>]
- * Example:   /login#4821-XK7M-A3PQ-Z9WJ-B5NT-FK26-G8VE-N4PQ-A1B2C3
- *            shareString = "4821-XK7M-A3PQ-Z9WJ-B5NT-FK26-G8VE-N4PQ"
- *            credential  = "A1B2C3"
- *
- * Parsing: split at the last '-' character. If the suffix is exactly 6 chars
- * and alphanumeric, treat it as a credential code. Otherwise, the entire hash
- * is treated as the share string.
- */
-function parseHash(hash: string): { shareString: string; credential: string | null } {
-  // Strip leading '#' if present
-  const raw = hash.startsWith('#') ? hash.slice(1) : hash;
-  if (!raw) return { shareString: '', credential: null };
-
-  // URL-decode the hash (it may have been encodeURIComponent'd by the QR generator)
-  const decoded = decodeURIComponent(raw);
-
-  const lastDash = decoded.lastIndexOf('-');
-  if (lastDash === -1) {
-    // No dash → entire string is share string
-    return { shareString: decoded, credential: null };
-  }
-
-  const potentialCred = decoded.slice(lastDash + 1);
-  const potentialShare = decoded.slice(0, lastDash);
-
-  // Credential codes are always exactly 6 alphanumeric characters
-  if (potentialCred.length === 6 && /^[A-Za-z0-9]{6}$/.test(potentialCred)) {
-    return { shareString: potentialShare, credential: potentialCred.toUpperCase() };
-  }
-
-  // Last segment doesn't look like a credential → treat everything as share string
-  return { shareString: decoded, credential: null };
-}
 
 type LoginTab = 'admin' | 'api_key' | 'temp_credential';
 
@@ -142,13 +105,19 @@ export function LoginPage() {
   };
 
   // ---- Hash parsing on mount (QR scan auto-login) ----
+
+  // Guards the one-shot auto-login: temp credentials are single-use on the
+  // backend, so a duplicate submit (e.g. React StrictMode double-effect)
+  // would consume the code and then fail with "invalid credential".
+  const autoLoginFiredRef = useRef(false);
+
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash) return; // No hash → normal login flow
 
-    const { shareString: parsedShare, credential } = parseHash(hash);
+    const { shareString: parsedShare, credential } = parseLoginHash(hash);
 
-    // Persist the share string for post-login auto-fill in RoomListPage.
+    // Persist the share string for post-login auto-join in RoomListPage.
     // Set synchronously so it's available regardless of doLogin closure timing.
     if (parsedShare) {
       useStore.getState().setPendingShareString(parsedShare);
@@ -162,9 +131,15 @@ export function LoginPage() {
 
       // Auto-submit: small delay to ensure React state has settled
       // before the login call reads from the component scope.
-      setTimeout(() => {
-        doLogin('temp_credential', { tempCode: credential });
-      }, 100);
+      if (!autoLoginFiredRef.current) {
+        autoLoginFiredRef.current = true;
+        setTimeout(() => {
+          doLogin('temp_credential', { tempCode: credential }).catch(() => {
+            // Error already surfaced by doLogin; the share string stays
+            // pre-filled so the user can log in with another method.
+          });
+        }, 100);
+      }
     } else if (parsedShare) {
       // Share string only → pre-fill, prompt for credential
       setActiveTab('temp_credential');
@@ -312,7 +287,7 @@ export function LoginPage() {
                   type="text"
                   value={tempCode}
                   onChange={(e) => setTempCode(e.target.value.toUpperCase())}
-                  placeholder="A1B2C3"
+                  placeholder="4JVA27Y7"
                   maxLength={12}
                   autoComplete="off"
                   required

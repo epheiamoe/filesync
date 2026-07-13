@@ -21,6 +21,37 @@ import type { WsMessage } from '@shared/types';
 export type NotificationPermissionState = NotificationPermission | 'unsupported';
 
 /**
+ * Show a system notification, preferring the service worker path.
+ *
+ * Chrome on Android throws "Illegal constructor" for page-created
+ * `new Notification(...)` — notifications there MUST go through
+ * ServiceWorkerRegistration.showNotification(). This app registers a
+ * service worker (vite-plugin-pwa), so the SW path is used whenever a
+ * registration exists; the constructor is only a fallback for contexts
+ * without a service worker (e.g. dev server before SW registration).
+ * Clicks on SW notifications are handled by sw-notification-click.js.
+ */
+async function showNotification(title: string, options: NotificationOptions): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration();
+    if (registration?.showNotification) {
+      await registration.showNotification(title, options);
+      return;
+    }
+  } catch {
+    // SW unavailable or showNotification failed — fall through
+  }
+
+  const notification = new Notification(title, options);
+  notification.onclick = () => {
+    window.focus();
+    if (typeof notification.close === 'function') {
+      notification.close();
+    }
+  };
+}
+
+/**
  * React hook that wires a RoomSocket to the browser Notifications API.
  *
  * @param socket - The active RoomSocket, or null before connection.
@@ -79,21 +110,13 @@ export function useRoomNotifications(
         `notification.messageType.${messageTypeKey}`,
       )}`;
 
-      try {
-        const notification = new Notification(title, {
-          body,
-          icon: '/favicon.svg',
-        });
-
-        notification.onclick = () => {
-          window.focus();
-          if (typeof notification.close === 'function') {
-            notification.close();
-          }
-        };
-      } catch {
-        // Constructing Notification may throw in insecure contexts; ignore.
-      }
+      showNotification(title, {
+        body,
+        icon: '/favicon.svg',
+        data: { url: window.location.href },
+      }).catch(() => {
+        // Notifications may fail in insecure contexts; ignore.
+      });
     });
 
     return () => {
